@@ -15,6 +15,9 @@ web-build/
 google-services.json
 GoogleService-Info.plist
 
+# Caché local del CLI de Firebase (se regenera en cada deploy)
+.firebase/
+
 # Expo
 .expo/
 expo-env.d.ts
