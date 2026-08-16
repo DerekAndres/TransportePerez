@@ -1,0 +1,4 @@
+/* Reset mínimo — Mantine aporta sus propios estilos globales */
+body {
+  margin: 0;
+}

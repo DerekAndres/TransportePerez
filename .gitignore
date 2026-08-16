@@ -1,0 +1,49 @@
+# Dependencias
+node_modules/
+
+# Builds y salidas de compilación
+dist/
+build/
+web-build/
+
+# Variables de entorno — contienen las credenciales de Firebase
+.env
+.env.local
+.env.*.local
+
+# Configuración de Firebase para las apps nativas (incluye API keys del proyecto)
+google-services.json
+GoogleService-Info.plist
+
+# Expo
+.expo/
+expo-env.d.ts
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Carpetas nativas generadas por prebuild
+/android
+/ios
+
+# Editores
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.sw?
+
+# Claude Code — configuración local, no se comparte
+.claude/settings.local.json
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
