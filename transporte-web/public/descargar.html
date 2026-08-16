@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Descargar la app — Transporte Perez</title>
+  <meta name="description" content="Descargá la aplicación de Inversiones Perez para seguir el bus escolar de tus hijos en tiempo real." />
+  <link rel="icon" href="/vite.svg" />
+  <style>
+    /* Página pública de descarga del APK (piloto).
+       Es un archivo estático en public/, NO parte de la app React: así se abre
+       sin iniciar sesión y carga al instante en el teléfono de los padres. */
+    :root {
+      --azul: #228be6;
+      --azul-oscuro: #1971c2;
+      --amarillo: #f6b73c;
+      --texto: #1a1b1e;
+      --texto-suave: #5c5f66;
+      --borde: #dee2e6;
+      --fondo: #f8f9fa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--fondo);
+      color: var(--texto);
+      line-height: 1.6;
+      padding: 24px 16px 48px;
+      display: flex;
+      justify-content: center;
+    }
+    .contenedor { width: 100%; max-width: 560px; }
+
+    header { text-align: center; margin-bottom: 28px; }
+    .logo {
+      font-size: 52px;
+      line-height: 1;
+      margin-bottom: 12px;
+    }
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
+    .subtitulo { color: var(--texto-suave); font-size: 15px; }
+
+    .tarjeta {
+      background: #fff;
+      border: 1px solid var(--borde);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .boton {
+      display: block;
+      width: 100%;
+      background: var(--azul);
+      color: #fff;
+      text-align: center;
+      text-decoration: none;
+      font-size: 17px;
+      font-weight: 600;
+      padding: 16px;
+      border-radius: 10px;
+      transition: background 0.15s;
+    }
+    .boton:hover { background: var(--azul-oscuro); }
+    .boton-nota {
+      text-align: center;
+      color: var(--texto-suave);
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    /* Estado mientras el APK todavía no está compilado */
+    .no-disponible {
+      display: block;
+      width: 100%;
+      background: var(--fondo);
+      border: 1px dashed var(--borde);
+      color: var(--texto-suave);
+      text-align: center;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 16px;
+      border-radius: 10px;
+    }
+
+    h2 {
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+    ol { list-style: none; counter-reset: paso; }
+    ol li {
+      counter-increment: paso;
+      position: relative;
+      padding-left: 38px;
+      margin-bottom: 16px;
+      font-size: 15px;
+    }
+    ol li:last-child { margin-bottom: 0; }
+    ol li::before {
+      content: counter(paso);
+      position: absolute;
+      left: 0;
+      top: 1px;
+      width: 26px;
+      height: 26px;
+      background: var(--azul);
+      color: #fff;
+      border-radius: 50%;
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    li strong { font-weight: 600; }
+
+    .aviso {
+      background: #fff9e6;
+      border: 1px solid var(--amarillo);
+      border-radius: 10px;
+      padding: 16px;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+    .aviso strong { display: block; margin-bottom: 4px; }
+
+    footer {
+      text-align: center;
+      color: var(--texto-suave);
+      font-size: 13px;
+      padding-top: 8px;
+    }
+    footer a { color: var(--azul); }
+  </style>
+</head>
+<body>
+  <div class="contenedor">
+    <header>
+      <div class="logo">🚌</div>
+      <h1>Transporte Perez</h1>
+      <p class="subtitulo">Seguí el bus escolar de tus hijos en tiempo real</p>
+    </header>
+
+    <div class="tarjeta">
+      <!-- El enlace lo genera EAS al compilar el APK. Mientras diga PENDIENTE,
+           la página muestra el estado "en preparación" en lugar de un botón roto. -->
+      <div id="zona-descarga"></div>
+      <p class="boton-nota">Android · Instalación directa (no está en Play Store)</p>
+    </div>
+
+    <div class="aviso">
+      <strong>⚠️ Android te va a advertir sobre el archivo</strong>
+      Es normal: la app se instala directamente y no desde la Play Store. Cuando
+      aparezca el aviso, tocá <em>"Más detalles"</em> y luego <em>"Instalar de todos modos"</em>.
+    </div>
+
+    <div class="tarjeta">
+      <h2>Cómo instalarla</h2>
+      <ol>
+        <li>Tocá el botón de descarga desde tu <strong>teléfono Android</strong>.</li>
+        <li>Cuando termine, abrí el archivo descargado y aceptá <strong>instalar de orígenes desconocidos</strong> si te lo pide.</li>
+        <li>Abrí la app e iniciá sesión con el <strong>correo y la contraseña</strong> que te dio la empresa.</li>
+        <li>Muy importante: cuando la app pida permiso para enviarte <strong>notificaciones</strong> y acceder a tu <strong>ubicación</strong>, aceptá ambos. Sin eso no vas a recibir los avisos de cuándo sube y baja tu hijo del bus.</li>
+      </ol>
+    </div>
+
+    <div class="tarjeta">
+      <h2>¿No tenés cuenta?</h2>
+      <p style="font-size: 15px; color: var(--texto-suave);">
+        Las cuentas las crea la empresa: no hay registro desde la app. Si todavía
+        no recibiste tu correo de acceso, comunicate con Inversiones Perez.
+      </p>
+    </div>
+
+    <footer>
+      Inversiones Perez · La Ceiba, Atlántida<br />
+      <a href="/">Panel administrativo</a>
+    </footer>
+  </div>
+
+  <script>
+    // ⬇️ ÚNICO VALOR A CAMBIAR: pegá acá el enlace del APK que imprime
+    //    `eas build --platform android --profile preview` al terminar.
+    var ENLACE_APK = "PENDIENTE";
+
+    var zona = document.getElementById("zona-descarga");
+    if (ENLACE_APK && ENLACE_APK !== "PENDIENTE") {
+      var a = document.createElement("a");
+      a.className = "boton";
+      a.href = ENLACE_APK;
+      a.textContent = "⬇  Descargar la app";
+      zona.appendChild(a);
+    } else {
+      var div = document.createElement("div");
+      div.className = "no-disponible";
+      div.textContent = "La app se está preparando — volvé pronto";
+      zona.appendChild(div);
+    }
+  </script>
+</body>
+</html>

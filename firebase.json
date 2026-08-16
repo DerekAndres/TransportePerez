@@ -5,6 +5,7 @@
   "hosting": {
     "public": "transporte-web/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "cleanUrls": true,
     "rewrites": [{ "source": "**", "destination": "/index.html" }]
   },
   "emulators": {

@@ -67,7 +67,15 @@ está en `eas.json` (perfil **preview** = APK instalable) y en `app.json`
 (`android.package` = `com.derekperez.transporteperez`, con `google-services.json`
 para las credenciales de FCM que usa el push).
 
+> ⚠️ **Estos comandos los tenés que correr vos**: `eas login` y `eas init` piden
+> las credenciales de tu cuenta de Expo de forma interactiva, así que Claude no
+> los puede ejecutar.
+
 ```bash
+# 0) Instalar el EAS CLI (una sola vez) e iniciar sesión en tu cuenta de Expo
+npm install -g eas-cli
+eas login
+
 cd transporte-movil
 npm install          # solo la primera vez
 
@@ -82,14 +90,64 @@ eas build --platform android --profile preview
 Instalá el APK en el teléfono (descargándolo del link o con `eas build:run -p
 android`).
 
-### Notas sobre el push en el APK
+### ⚠️ Para que las notificaciones push funcionen
+
+Son **dos** requisitos, y sin cualquiera de los dos el push falla en silencio
+(la app no se rompe, simplemente nunca llega el aviso):
+
+**a) `extra.eas.projectId` en `app.json`** — lo escribe `eas init` (paso 1 de
+arriba). `registrarTokenPush()` en `services/notificacionesService.ts` corta y
+retorna sin pedir token si ese id no está. Hoy `app.json` **no lo tiene**, así
+que `eas init` es obligatorio, no opcional.
+
+**b) Credenciales de FCM V1 subidas a EAS** — en Android, Expo Push entrega los
+avisos a través de Firebase Cloud Messaging, y para eso el servidor de Expo
+necesita una clave de cuenta de servicio de tu proyecto. El `google-services.json`
+cubre solo el lado del cliente, no este. Pasos:
+
+1. Firebase Console → ⚙️ Configuración del proyecto → pestaña **Cloud Messaging**.
+2. En *Firebase Cloud Messaging API (V1)* → **Administrar cuentas de servicio** →
+   generar una nueva clave privada (descarga un `.json`).
+3. `eas credentials` → plataforma **Android** → *Push Notifications* → subir ese `.json`.
+
+Recién después de esto compilá el APK. Para probar: el padre tiene que haber
+abierto la app **al menos una vez** y aceptado el permiso de notificaciones
+(ahí se guarda su `expoPushToken` en `usuarios/{uid}`); si no tiene token
+guardado, el conductor marca asistencia y no se envía nada.
 
 - El push remoto **no** funciona en Expo Go en Android (SDK 53+); recién con este
   APK se puede probar de verdad.
-- Expo Push usa FCM por debajo en Android. Si al probar el push no llega, configurá
-  las credenciales de FCM V1 con `eas credentials` (Android → subir la clave de
-  cuenta de servicio de Firebase → Project settings → Cloud Messaging). El
-  `google-services.json` ya referenciado cubre la parte del cliente.
+
+---
+
+## 3-bis. Publicar el enlace de descarga del APK
+
+La página pública de descarga ya está desplegada en
+**https://transporte-perez.web.app/descargar** (archivo estático
+`transporte-web/public/descargar.html`, fuera de la app React para que se abra
+sin iniciar sesión). Trae las instrucciones de instalación para los padres y el
+aviso de "orígenes desconocidos" de Android.
+
+Mientras el APK no exista, la página muestra "La app se está preparando". Para
+activar el botón, cuando `eas build` termine:
+
+1. Copiá el enlace del APK que imprime EAS al finalizar.
+2. En `transporte-web/public/descargar.html`, al final del archivo, reemplazá
+   la línea `var ENLACE_APK = "PENDIENTE";` por ese enlace.
+3. Volvé a publicar:
+
+```bash
+cd transporte-web && npm run build && cd ..
+firebase deploy --only hosting
+```
+
+> Se apunta al enlace de Expo en vez de subir el APK a Firebase Hosting a
+> propósito: el plan Spark permite solo **360 MB de transferencia por día** y un
+> APK de Expo pesa ~70-100 MB, o sea que se agotaría con 4 descargas diarias.
+> Sirviéndolo desde Expo, el ancho de banda no consume tu cuota.
+>
+> Ojo: en el plan gratuito EAS conserva los artefactos de compilación **30 días**.
+> Si el piloto se extiende más, recompilá y actualizá el enlace.
 
 ---
 
