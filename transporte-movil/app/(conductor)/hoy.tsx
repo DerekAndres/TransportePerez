@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
   Avatar,
@@ -9,11 +9,14 @@ import {
   useTheme,
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Timestamp } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
 import { useEmisionUbicacion, type EstadoGps } from '@/hooks/use-emision-ubicacion';
+import BotonPrincipal from '@/components/BotonPrincipal';
+import ChipFiltro from '@/components/ChipFiltro';
 import GrupoAsistencia, { type ItemAsistencia } from '@/components/GrupoAsistencia';
 import PantallaBase from '@/components/PantallaBase';
 import Tarjeta from '@/components/Tarjeta';
@@ -39,8 +42,13 @@ import {
 } from '@/services/viajesService';
 import { listarCambiosPuntualesDeHoy } from '@/services/solicitudesService';
 import { limpiarUbicacion } from '@/services/ubicacionesService';
-import { notificarEventoAlPadre, notificarProximidad } from '@/services/notificacionesService';
-import { ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
+import {
+  notificarEventoAlPadre,
+  notificarProximidad,
+  reintentarAvisosPendientes,
+} from '@/services/notificacionesService';
+import { ESPACIO, RADIO, SOMBRA_FLOTANTE, estilosBase } from '@/constants/estilos';
+import { saludoDelDia } from '@/utils/tiempo';
 import type {
   Bus,
   Escuela,
@@ -87,6 +95,7 @@ export default function MiRutaDeHoyScreen() {
   const { usuario } = useAuth();
   const router = useRouter();
   const tema = useTheme();
+  const insets = useSafeAreaInsets();
 
   const [cargando, setCargando] = useState(true);
   const [sinAsignacion, setSinAsignacion] = useState('');
@@ -382,6 +391,10 @@ export default function MiRutaDeHoyScreen() {
       items.forEach((it) =>
         notificarEventoAlPadre(it.ninoId, it.evento, { turno }).catch(() => {})
       );
+      // La escritura a Firestore funcionó, así que en este momento HAY señal:
+      // es el mejor momento para vaciar los avisos que quedaron pendientes en
+      // el tramo sin cobertura anterior.
+      reintentarAvisosPendientes().catch(() => {});
     } catch {
       Alert.alert('Error', 'No se pudo guardar el registro.');
     } finally {
@@ -475,33 +488,49 @@ export default function MiRutaDeHoyScreen() {
   const marcar = (ids: string[], evento: EventoRegistro) =>
     registrar(ids.map((id) => ({ ninoId: id, evento })));
 
-  return (
-    <PantallaBase accionDerecha={avatarUsuario}>
-      <View style={styles.saludo}>
-        <Text variant="headlineMedium" style={styles.negrita}>
-          Hola, {usuario?.nombre?.split(' ')[0] ?? ''}
-        </Text>
-        <Text variant="bodyMedium" style={estilosBase.tenue}>
-          {ruta ? 'Tu ruta de hoy' : 'Tus rutas asignadas'}
-        </Text>
-      </View>
+  // Progreso del viaje. Se muestran los dos números que le importan al
+  // conductor: cuántos lleva arriba y cuántos ya dejó. El viaje termina cuando
+  // todos están entregados, así que esa es la barra que se llena.
+  const total = ninos.length;
+  const porcentaje = (cantidad: number) => (total === 0 ? 0 : (cantidad / total) * 100);
 
+  const saludo = (
+    <View style={styles.saludo}>
+      <Text variant="headlineMedium">
+        {saludoDelDia()}, {usuario?.nombre?.split(' ')[0] ?? ''} 👋
+      </Text>
+      <Text variant="bodyMedium" style={estilosBase.tenue}>
+        {ruta ? 'Tu ruta de hoy' : 'Tus rutas asignadas'}
+      </Text>
+    </View>
+  );
+
+  return (
+    // scroll={false}: esta pantalla arma su propio layout en tres partes —
+    // cabecera fija arriba, lista que se desplaza en el medio y la acción
+    // principal clavada abajo. Manejando, el conductor no tiene que buscar el
+    // botón de finalizar ni perder de vista cuánto le falta.
+    <PantallaBase accionDerecha={avatarUsuario} scroll={false}>
       {sinAsignacion ? (
-        <Tarjeta>
-          <Text>{sinAsignacion}</Text>
-          <Button
-            onPress={() => {
-              setCargando(true);
-              setIntento((i) => i + 1);
-            }}
-          >
-            Reintentar
-          </Button>
-        </Tarjeta>
+        <ScrollView contentContainerStyle={styles.lienzo}>
+          {saludo}
+          <Tarjeta>
+            <Text>{sinAsignacion}</Text>
+            <Button
+              onPress={() => {
+                setCargando(true);
+                setIntento((i) => i + 1);
+              }}
+            >
+              Reintentar
+            </Button>
+          </Tarjeta>
+        </ScrollView>
       ) : !ruta ? (
         /* --- Selector: el conductor elige la ruta que va a manejar. No se
            filtra por hora; puede arrancar la que corresponda cuando toque. --- */
-        <>
+        <ScrollView contentContainerStyle={styles.lienzo}>
+          {saludo}
           <TituloSeccion titulo="Elegí la ruta que vas a manejar" />
           {rutas.map((r) => {
             const viajeDeRuta = viajesHoy.find((v) => v.rutaId === r.id);
@@ -552,260 +581,361 @@ export default function MiRutaDeHoyScreen() {
               </Tarjeta>
             );
           })}
-        </>
+        </ScrollView>
       ) : (
-        <>
-          {/* Tarjeta principal de la ruta, en azul de marca */}
-          <Tarjeta style={{ backgroundColor: tema.colors.primaryContainer }}>
-            <View style={styles.filaHero}>
-              <Avatar.Icon
-                size={52}
-                icon="bus-school"
-                style={{ backgroundColor: tema.colors.primary }}
-                color={tema.colors.onPrimary}
-              />
-              <View style={styles.datosHero}>
-                <Text
-                  variant="titleMedium"
-                  style={{ color: tema.colors.onPrimaryContainer, fontWeight: '700' }}
-                >
-                  {ruta.nombre}
-                </Text>
-                <Text variant="bodySmall" style={{ color: tema.colors.onPrimaryContainer }}>
-                  {ruta.turno ? `Turno ${ETIQUETA_TURNO[ruta.turno]} · ` : ''}Bus {bus?.placa}
-                </Text>
-                <Text variant="bodySmall" style={{ color: tema.colors.onPrimaryContainer }}>
-                  {ninos.length} niños · {escuelas.length} escuela
-                  {escuelas.length === 1 ? '' : 's'}
-                </Text>
+        <View style={estilosBase.pantalla}>
+          {/* ============================================================
+              1. CABECERA FIJA — qué ruta es y cómo viene el viaje
+              ============================================================ */}
+          <View style={styles.cabecera}>
+            {/* Con varias rutas asignadas, se cambia de una a otra tocando su
+                pastilla. Con un viaje en curso no se muestran: ahí lo único que
+                corresponde es terminar ese viaje. */}
+            {rutas.length > 1 && viaje?.estado !== 'en_curso' && (
+              <View style={styles.carrilChips}>
+                <ChipFiltro
+                  opciones={rutas.map((r) => ({
+                    id: r.id,
+                    etiqueta: r.nombre,
+                    detalle: r.turno ? ETIQUETA_TURNO[r.turno] : undefined,
+                  }))}
+                  seleccionadaId={rutaElegidaId}
+                  onSeleccionar={setRutaElegidaId}
+                />
               </View>
-            </View>
-          </Tarjeta>
+            )}
 
-          {/* Con varias rutas asignadas se puede volver al selector, siempre que
-              no haya un viaje en curso (ahí lo que toca es finalizarlo) */}
-          {rutas.length > 1 && viaje?.estado !== 'en_curso' && (
-            <Button mode="text" icon="swap-horizontal" onPress={() => setRutaElegidaId(null)}>
-              Cambiar de ruta
-            </Button>
-          )}
-
-          {/* Mapa con las paradas numeradas en orden: dónde recoger, el punto de
-              transbordo (si hay) y a qué escuela ir. Disponible antes y durante el viaje. */}
-          <Button
-            mode="outlined"
-            icon="map-marker-path"
-            disabled={recorrido.length === 0}
-            onPress={() =>
-              router.push({
-                pathname: '/recorrido',
-                params: { rutaNombre: ruta.nombre, paradas: JSON.stringify(recorrido) },
-              })
-            }
-          >
-            Ver recorrido en el mapa
-          </Button>
-
-          {!viaje && (
-            <>
-              <Button
-                mode="contained"
-                icon="play"
-                onPress={manejarIniciar}
-                loading={procesando}
-                disabled={procesando || !!viajeEnCursoOtraRuta}
-                contentStyle={styles.contenidoBotonGrande}
-              >
-                Iniciar viaje{ruta.turno ? ` ${ETIQUETA_TURNO[ruta.turno]}` : ''}
-              </Button>
-              {!!viajeEnCursoOtraRuta && (
-                <Text variant="bodySmall" style={{ color: tema.colors.error }}>
-                  Tenés un viaje en curso en otra ruta. Finalizalo antes de iniciar este.
-                </Text>
-              )}
-            </>
-          )}
-
-          {viaje?.estado === 'finalizado' && (
-            <Tarjeta style={{ backgroundColor: tema.colors.secondaryContainer }}>
+            {/* Tarjeta blanca: el color entra solo en el ícono, en la barra de
+                progreso y en la pastilla de "en curso" */}
+            <Tarjeta>
               <View style={styles.filaHero}>
                 <Avatar.Icon
-                  size={40}
-                  icon="check-bold"
+                  size={46}
+                  icon="bus-school"
                   style={{ backgroundColor: tema.colors.primary }}
                   color={tema.colors.onPrimary}
                 />
                 <View style={styles.datosHero}>
-                  <Text variant="titleMedium" style={{ color: tema.colors.onSecondaryContainer }}>
-                    {ruta.turno ? `Viaje de ${ETIQUETA_TURNO[ruta.turno]}` : 'Viaje'} finalizado
+                  <Text variant="titleMedium" numberOfLines={1}>
+                    {ruta.nombre}
                   </Text>
-                  <Text variant="bodySmall" style={{ color: tema.colors.onSecondaryContainer }}>
-                    La asistencia quedó registrada.
+                  <Text variant="bodySmall" style={estilosBase.tenue}>
+                    {ruta.turno ? `Turno ${ETIQUETA_TURNO[ruta.turno]} · ` : ''}Bus {bus?.placa}
+                    {' · '}
+                    {total} niños
                   </Text>
                 </View>
+                {viaje?.estado === 'en_curso' && (
+                  <View style={[styles.pastilla, { backgroundColor: tema.colors.primary }]}>
+                    <Text variant="labelSmall" style={{ color: tema.colors.onPrimary }}>
+                      En curso
+                    </Text>
+                  </View>
+                )}
               </View>
+
+              {viaje?.estado === 'en_curso' && (
+                <>
+                  {/* La barra tiene dos tramos: lo entregado (aqua) y lo que va
+                      arriba del bus (coral). Juntos dicen en un solo dibujo
+                      cuánto del viaje está hecho. */}
+                  <View
+                    style={[styles.barraFondo, { backgroundColor: tema.colors.surfaceVariant }]}
+                  >
+                    <View
+                      style={{
+                        width: `${porcentaje(entregados)}%`,
+                        backgroundColor: tema.colors.secondary,
+                      }}
+                    />
+                    <View
+                      style={{
+                        width: `${porcentaje(enBus)}%`,
+                        backgroundColor: tema.colors.primary,
+                      }}
+                    />
+                  </View>
+
+                  <View style={estilosBase.filaEntre}>
+                    <View style={styles.filaLeyenda}>
+                      <Leyenda
+                        color={tema.colors.primary}
+                        texto={`${enBus} en el bus`}
+                        colorTexto={tema.colors.onSurfaceVariant}
+                      />
+                      <Leyenda
+                        color={tema.colors.secondary}
+                        texto={`${entregados} entregados`}
+                        colorTexto={tema.colors.onSurfaceVariant}
+                      />
+                    </View>
+
+                    {/* GPS: si falla, el padre deja de ver el bus — por eso el
+                        aviso vive acá arriba y no escondido en la lista */}
+                    <View style={styles.filaLeyenda}>
+                      <MaterialCommunityIcons
+                        name={estadoGps === 'activo' ? 'crosshairs-gps' : 'crosshairs-question'}
+                        size={15}
+                        color={
+                          estadoGps === 'activo' ? tema.colors.onSurfaceVariant : tema.colors.error
+                        }
+                      />
+                      <Text
+                        variant="labelSmall"
+                        style={{
+                          color:
+                            estadoGps === 'activo'
+                              ? tema.colors.onSurfaceVariant
+                              : tema.colors.error,
+                        }}
+                      >
+                        {estadoGps === 'activo' ? 'GPS activo' : ETIQUETA_GPS[estadoGps]}
+                      </Text>
+                    </View>
+                  </View>
+                </>
+              )}
             </Tarjeta>
-          )}
+          </View>
 
-          {viaje?.estado === 'en_curso' && (
-            <>
-              <View style={styles.filaEstado}>
-                {/* GPS bien = azul suave; GPS con problema = rojo de alerta */}
-                <View
-                  style={[
-                    styles.pastillaAncha,
-                    {
-                      backgroundColor:
-                        estadoGps === 'activo'
-                          ? tema.colors.secondaryContainer
-                          : tema.colors.errorContainer,
-                    },
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name={estadoGps === 'activo' ? 'crosshairs-gps' : 'crosshairs-question'}
-                    size={15}
-                    color={
-                      estadoGps === 'activo'
-                        ? tema.colors.onSecondaryContainer
-                        : tema.colors.onErrorContainer
-                    }
+          {/* ============================================================
+              2. LO QUE SE DESPLAZA — la asistencia
+              ============================================================ */}
+          <ScrollView
+            contentContainerStyle={styles.lista}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Mapa con las paradas numeradas en orden: dónde recoger, el punto
+                de transbordo (si hay) y a qué escuela ir. Sirve antes y durante. */}
+            <Button
+              mode="outlined"
+              icon="map-marker-path"
+              disabled={recorrido.length === 0}
+              style={styles.botonSecundario}
+              contentStyle={styles.contenidoBotonGrande}
+              onPress={() =>
+                router.push({
+                  pathname: '/recorrido',
+                  params: { rutaNombre: ruta.nombre, paradas: JSON.stringify(recorrido) },
+                })
+              }
+            >
+              Ver recorrido en el mapa
+            </Button>
+
+            {viaje?.estado === 'finalizado' && (
+              <Tarjeta style={{ backgroundColor: tema.colors.secondaryContainer }}>
+                <View style={styles.filaHero}>
+                  <Avatar.Icon
+                    size={40}
+                    icon="check-bold"
+                    style={{ backgroundColor: tema.colors.secondary }}
+                    color={tema.colors.onSecondary}
                   />
-                  <Text
-                    variant="labelMedium"
-                    style={{
-                      color:
-                        estadoGps === 'activo'
-                          ? tema.colors.onSecondaryContainer
-                          : tema.colors.onErrorContainer,
-                    }}
-                  >
-                    {ETIQUETA_GPS[estadoGps]}
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    styles.pastillaAncha,
-                    { backgroundColor: tema.colors.secondaryContainer },
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="account-group"
-                    size={15}
-                    color={tema.colors.onSecondaryContainer}
-                  />
-                  <Text
-                    variant="labelMedium"
-                    style={{ color: tema.colors.onSecondaryContainer }}
-                  >
-                    En bus: {enBus} · Entregados: {entregados}
-                  </Text>
-                </View>
-              </View>
-
-              {turno === 'manana' ? (
-                <>
-                  <TituloSeccion titulo="Recoger en casa" />
-                  {gruposParadaSuben.map((g) => (
-                    <GrupoAsistencia
-                      key={`p-${g.titulo}`}
-                      titulo={g.titulo}
-                      items={itemsRecogida(g.ninos)}
-                      etiquetaAccion="Subió"
-                      etiquetaGrupo="Todos subieron"
-                      onAccion={(ids) => marcar(ids, 'subio')}
-                      ocupado={registrando}
-                    />
-                  ))}
-
-                  <TituloSeccion titulo="Dejar en la escuela" />
-                  {gruposEscuelaBajan.map((g) => (
-                    <GrupoAsistencia
-                      key={`e-${g.escuela.id}`}
-                      titulo={g.escuela.nombre}
-                      items={itemsEntrega(g.ninos)}
-                      etiquetaAccion="Bajó"
-                      etiquetaGrupo="Llegué (bajan todos)"
-                      onAccion={(ids) => marcar(ids, 'bajo')}
-                      ocupado={registrando}
-                    />
-                  ))}
-                </>
-              ) : (
-                <>
-                  <TituloSeccion titulo="Recoger en la escuela" />
-                  {gruposEscuelaSuben.map((g) => (
-                    <GrupoAsistencia
-                      key={`e-${g.escuela.id}`}
-                      titulo={g.escuela.nombre}
-                      items={itemsRecogida(g.ninos)}
-                      etiquetaAccion="Subió"
-                      etiquetaGrupo="Salí (suben todos)"
-                      onAccion={(ids) => marcar(ids, 'subio')}
-                      ocupado={registrando}
-                    />
-                  ))}
-
-                  <TituloSeccion titulo="Dejar en casa" />
-                  {gruposParadaBajan.map((g) => (
-                    <GrupoAsistencia
-                      key={`p-${g.titulo}`}
-                      titulo={g.titulo}
-                      items={itemsEntrega(g.ninos)}
-                      etiquetaAccion="Bajó"
-                      etiquetaGrupo="Todos bajaron"
-                      onAccion={(ids) => marcar(ids, 'bajo')}
-                      ocupado={registrando}
-                    />
-                  ))}
-                </>
-              )}
-
-              {/* Transbordo: solo aparece si la ruta pasa por un punto de transbordo */}
-              {puntos.length > 0 && viaje && bus && (
-                <>
-                  <TituloSeccion titulo="Transbordo" />
-                  {puntos.map((p) => (
-                    <Button
-                      key={p.id}
-                      mode="contained-tonal"
-                      icon="swap-horizontal"
-                      onPress={() =>
-                        router.push({
-                          pathname: '/transbordo',
-                          params: {
-                            puntoId: p.id,
-                            puntoNombre: p.nombre,
-                            viajeId: viaje.id,
-                            rutaId: ruta.id,
-                            busId: bus.id,
-                          },
-                        })
-                      }
+                  <View style={styles.datosHero}>
+                    <Text
+                      variant="titleMedium"
+                      style={{ color: tema.colors.onSecondaryContainer }}
                     >
-                      Transbordo en {p.nombre}
-                    </Button>
-                  ))}
-                </>
-              )}
+                      {ruta.turno ? `Viaje de ${ETIQUETA_TURNO[ruta.turno]}` : 'Viaje'} finalizado
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: tema.colors.onSecondaryContainer }}>
+                      La asistencia quedó registrada.
+                    </Text>
+                  </View>
+                </View>
+              </Tarjeta>
+            )}
 
-              <Button
-                mode="contained"
-                icon="flag-checkered"
-                buttonColor={tema.colors.error}
-                textColor={tema.colors.onError}
-                onPress={manejarFinalizar}
-                loading={procesando}
-                disabled={procesando}
-                contentStyle={styles.contenidoBotonGrande}
-              >
-                Finalizar viaje
-              </Button>
-            </>
+            {/* Antes de arrancar: a quiénes va a recoger, en gris. Sirve para
+                revisar la lista sin poder marcar nada todavía. */}
+            {!viaje && (
+              <>
+                <TituloSeccion
+                  titulo={turno === 'manana' ? 'A quiénes vas a recoger' : 'A quiénes vas a llevar'}
+                />
+                {turno === 'manana'
+                  ? gruposParadaSuben.map((g) => (
+                      <GrupoAsistencia
+                        key={`previa-p-${g.titulo}`}
+                        titulo={g.titulo}
+                        items={itemsRecogida(g.ninos)}
+                        etiquetaAccion="Subió"
+                        etiquetaGrupo="Iniciá el viaje"
+                        onAccion={() => {}}
+                        ocupado
+                      />
+                    ))
+                  : gruposEscuelaSuben.map((g) => (
+                      <GrupoAsistencia
+                        key={`previa-e-${g.escuela.id}`}
+                        titulo={g.escuela.nombre}
+                        items={itemsRecogida(g.ninos)}
+                        etiquetaAccion="Subió"
+                        etiquetaGrupo="Iniciá el viaje"
+                        onAccion={() => {}}
+                        ocupado
+                      />
+                    ))}
+              </>
+            )}
+
+            {viaje?.estado === 'en_curso' && (
+              <>
+                {turno === 'manana' ? (
+                  <>
+                    <TituloSeccion titulo="Recoger en casa" />
+                    {gruposParadaSuben.map((g) => (
+                      <GrupoAsistencia
+                        key={`p-${g.titulo}`}
+                        titulo={g.titulo}
+                        items={itemsRecogida(g.ninos)}
+                        etiquetaAccion="Subió"
+                        etiquetaGrupo="Todos subieron"
+                        onAccion={(ids) => marcar(ids, 'subio')}
+                        ocupado={registrando}
+                      />
+                    ))}
+
+                    <TituloSeccion titulo="Dejar en la escuela" />
+                    {gruposEscuelaBajan.map((g) => (
+                      <GrupoAsistencia
+                        key={`e-${g.escuela.id}`}
+                        titulo={g.escuela.nombre}
+                        items={itemsEntrega(g.ninos)}
+                        etiquetaAccion="Bajó"
+                        etiquetaGrupo="Llegué (bajan todos)"
+                        onAccion={(ids) => marcar(ids, 'bajo')}
+                        ocupado={registrando}
+                      />
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <TituloSeccion titulo="Recoger en la escuela" />
+                    {gruposEscuelaSuben.map((g) => (
+                      <GrupoAsistencia
+                        key={`e-${g.escuela.id}`}
+                        titulo={g.escuela.nombre}
+                        items={itemsRecogida(g.ninos)}
+                        etiquetaAccion="Subió"
+                        etiquetaGrupo="Salí (suben todos)"
+                        onAccion={(ids) => marcar(ids, 'subio')}
+                        ocupado={registrando}
+                      />
+                    ))}
+
+                    <TituloSeccion titulo="Dejar en casa" />
+                    {gruposParadaBajan.map((g) => (
+                      <GrupoAsistencia
+                        key={`p-${g.titulo}`}
+                        titulo={g.titulo}
+                        items={itemsEntrega(g.ninos)}
+                        etiquetaAccion="Bajó"
+                        etiquetaGrupo="Todos bajaron"
+                        onAccion={(ids) => marcar(ids, 'bajo')}
+                        ocupado={registrando}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {/* Transbordo: solo aparece si la ruta pasa por un punto */}
+                {puntos.length > 0 && viaje && bus && (
+                  <>
+                    <TituloSeccion titulo="Transbordo" />
+                    {puntos.map((p) => (
+                      <Button
+                        key={p.id}
+                        mode="contained-tonal"
+                        icon="swap-horizontal"
+                        style={styles.botonSecundario}
+                        contentStyle={styles.contenidoBotonGrande}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/transbordo',
+                            params: {
+                              puntoId: p.id,
+                              puntoNombre: p.nombre,
+                              viajeId: viaje.id,
+                              rutaId: ruta.id,
+                              busId: bus.id,
+                            },
+                          })
+                        }
+                      >
+                        Transbordo en {p.nombre}
+                      </Button>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
+          </ScrollView>
+
+          {/* ============================================================
+              3. LA ACCIÓN — siempre visible, nunca hay que scrollear
+              ============================================================ */}
+          {viaje?.estado !== 'finalizado' && (
+            <View
+              style={[
+                styles.pie,
+                {
+                  backgroundColor: tema.colors.background,
+                  // Por encima de la barra de navegación del teléfono
+                  paddingBottom: insets.bottom + ESPACIO.interno,
+                },
+              ]}
+            >
+              {!!viajeEnCursoOtraRuta && (
+                <Text variant="bodySmall" style={[styles.avisoPie, { color: tema.colors.error }]}>
+                  Tenés un viaje en curso en otra ruta. Finalizalo antes de iniciar este.
+                </Text>
+              )}
+              {!viaje ? (
+                <BotonPrincipal
+                  texto={`Iniciar viaje${ruta.turno ? ` ${ETIQUETA_TURNO[ruta.turno]}` : ''}`}
+                  icono="play"
+                  onPress={manejarIniciar}
+                  cargando={procesando}
+                  deshabilitado={procesando || !!viajeEnCursoOtraRuta}
+                />
+              ) : (
+                <BotonPrincipal
+                  texto="Finalizar viaje"
+                  icono="flag-checkered"
+                  tono="peligro"
+                  onPress={manejarFinalizar}
+                  cargando={procesando}
+                  deshabilitado={procesando}
+                />
+              )}
+            </View>
           )}
-        </>
+        </View>
       )}
     </PantallaBase>
+  );
+}
+
+// Cuadradito de color + texto, para explicar qué significa cada tramo de la
+// barra de progreso sin tener que escribir una leyenda larga.
+function Leyenda({
+  color,
+  texto,
+  colorTexto,
+}: {
+  color: string;
+  texto: string;
+  colorTexto: string;
+}) {
+  return (
+    <View style={styles.leyenda}>
+      <View style={[styles.puntoLeyenda, { backgroundColor: color }]} />
+      <Text variant="labelSmall" style={{ color: colorTexto }}>
+        {texto}
+      </Text>
+    </View>
   );
 }
 
@@ -813,17 +943,46 @@ const styles = StyleSheet.create({
   saludo: { gap: 2 },
   negrita: { fontWeight: '700' },
   avatarToque: { borderRadius: 19 },
-  filaEstado: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+
+  // Pantallas simples (sin ruta elegida): scroll normal con márgenes
+  lienzo: {
+    paddingHorizontal: ESPACIO.pantalla,
+    paddingBottom: 40,
+    gap: ESPACIO.seccion,
+  },
+
+  // 1. Cabecera fija
+  cabecera: { paddingHorizontal: ESPACIO.pantalla, gap: ESPACIO.interno },
+  carrilChips: { marginBottom: 2 },
   filaHero: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno + 2 },
   datosHero: { flex: 1, gap: 2 },
-  contenidoBotonGrande: { paddingVertical: 8 },
   pastilla: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIO.pastilla },
-  pastillaAncha: {
+  barraFondo: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    height: 10,
     borderRadius: RADIO.pastilla,
+    overflow: 'hidden',
   },
+  filaLeyenda: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno },
+  leyenda: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  puntoLeyenda: { width: 9, height: 9, borderRadius: 5 },
+
+  // 2. Lista
+  lista: {
+    paddingHorizontal: ESPACIO.pantalla,
+    paddingTop: ESPACIO.seccion,
+    paddingBottom: ESPACIO.seccion,
+    gap: ESPACIO.seccion,
+  },
+  botonSecundario: { borderRadius: RADIO.control },
+  contenidoBotonGrande: { paddingVertical: 8 },
+
+  // 3. Pie fijo
+  pie: {
+    paddingHorizontal: ESPACIO.pantalla,
+    paddingTop: ESPACIO.interno,
+    gap: ESPACIO.minimo,
+    ...SOMBRA_FLOTANTE,
+  },
+  avisoPie: { textAlign: 'center' },
 });

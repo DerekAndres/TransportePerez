@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Avatar, Badge, Text, TouchableRipple, useTheme } from 'react-native-paper';
+import { ActivityIndicator, Avatar, Text, TouchableRipple, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { Timestamp } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
+import AparicionSuave from '@/components/AparicionSuave';
 import PantallaBase from '@/components/PantallaBase';
 import Tarjeta from '@/components/Tarjeta';
+import TarjetaAviso from '@/components/TarjetaAviso';
 import TituloSeccion from '@/components/TituloSeccion';
 import TileAccion from '@/components/TileAccion';
 import LineaViaje, { type EtapaViaje } from '@/components/LineaViaje';
@@ -21,23 +22,34 @@ import {
   listarViajesDeRutaPorFecha,
   obtenerEscuela,
 } from '@/services/padreService';
-import { listarCanalesDeEscuelas } from '@/services/canalesService';
+import { escucharAvisosDeCanales, listarCanalesDeEscuelas } from '@/services/canalesService';
 import { escucharBandeja, type ResumenConversacion } from '@/services/mensajesService';
 import { fechaDeHoy, turnoActual } from '@/services/viajesService';
-import { ALTURA, ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
-import type { Canal, Nino, ParadaNino, Registro, Ruta, Viaje } from '@/types/models';
+import { ALTURA, ESPACIO, RADIO, SOMBRA_FLOTANTE, estilosBase } from '@/constants/estilos';
+import { horaCorta, saludoDelDia } from '@/utils/tiempo';
+import type { Aviso, Canal, Nino, ParadaNino, Registro, Ruta, Viaje } from '@/types/models';
 
 // ============================================
 // INICIO DEL PADRE
 // ============================================
 // Arriba, lo único que importa a diario: la TARJETA DEL VIAJE de cada hijo —
 // dónde está ahora, el recorrido dibujado y, si el bus salió, el mapa en vivo.
-// Abajo, todo lo demás en secciones cortas: atajos, avisos de la escuela,
-// viajes pasados y mensajes. Cada sección muestra un adelanto y un "Ver todo"
-// que lleva a su pantalla completa.
+// Enseguida, los AVISOS de la administración; después, los atajos, los viajes
+// pasados y los mensajes. Cada sección muestra un adelanto y un "Ver todo" que
+// lleva a su pantalla completa.
+//
+// LOS AVISOS SE MUESTRAN, NO SE ANUNCIAN: si la administración publicó un
+// comunicado en el canal de la escuela de un hijo, acá aparece el TEXTO del
+// aviso, no un botón que dice "Avisos". Un botón obliga al padre a entrar para
+// enterarse de si hay algo — y entonces no se entera. El canal del que viene
+// cada aviso sale del mismo criterio de siempre: es padre del canal quien tiene
+// un hijo activo en esa escuela, sin inscribirse a nada.
 //
 // La navegación general no vive acá sino en el menú ☰ del encabezado; el inicio
 // solo ofrece los caminos más usados.
+
+// Cuántos avisos se muestran en el inicio. Los demás están en "Ver todos".
+const AVISOS_EN_INICIO = 2;
 
 type EstadoHijo = 'en_casa' | 'en_bus' | 'entregado';
 
@@ -71,12 +83,6 @@ interface EventoReciente {
   fecha: string;
   hora: string;
   momento: number; // para ordenar
-}
-
-// Hora "H:mm" de un registro (la que quedó guardada al marcar la asistencia)
-function horaCorta(momento: Timestamp): string {
-  const fecha = momento.toDate();
-  return `${fecha.getHours()}:${String(fecha.getMinutes()).padStart(2, '0')}`;
 }
 
 // Viaje "vigente" del día: el que está en curso o, si no hay, el último finalizado
@@ -140,6 +146,7 @@ export default function InicioPadreScreen() {
   const [registrosPorClave, setRegistrosPorClave] = useState<Map<string, Registro[]>>(new Map());
   const [estadoMapaPorHijo, setEstadoMapaPorHijo] = useState<Map<string, EstadoMapa>>(new Map());
   const [canales, setCanales] = useState<Canal[]>([]);
+  const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [recientes, setRecientes] = useState<EventoReciente[]>([]);
   const [resumenes, setResumenes] = useState<ResumenConversacion[]>([]);
   const [refrescando, setRefrescando] = useState(false);
@@ -216,6 +223,25 @@ export default function InicioPadreScreen() {
     if (!usuario) return;
     return escucharBandeja(usuario.id, setResumenes);
   }, [usuario]);
+
+  // --- Avisos de los canales del padre, en vivo ---
+  // En vivo y no una carga puntual: si la administración publica algo mientras
+  // el padre tiene la app abierta, el aviso aparece solo en el inicio.
+  const clavesCanales = canales.map((c) => c.id).join(',');
+  useEffect(() => {
+    const ids = clavesCanales ? clavesCanales.split(',') : [];
+    if (ids.length === 0) {
+      setAvisos([]);
+      return;
+    }
+    return escucharAvisosDeCanales(ids, setAvisos);
+  }, [clavesCanales]);
+
+  // Nombre de cada canal, para decir de dónde viene cada aviso
+  const nombrePorCanal = useMemo(
+    () => new Map(canales.map((c) => [c.id, c.nombre])),
+    [canales]
+  );
 
   // --- Viajes pasados (últimos días). Se carga después de lo principal para
   //     que la tarjeta del viaje aparezca de inmediato. ---
@@ -329,11 +355,14 @@ export default function InicioPadreScreen() {
     });
   };
 
-  // Colores de la pastilla de estado: el azul lleno es el estado "vivo"
+  // Colores de la pastilla de estado — los mismos tres en toda la app:
+  //   en casa   = arena (todavía no pasa nada)
+  //   en el bus = CORAL lleno (está pasando ahora)
+  //   entregado = AQUA (se cumplió)
   const colorPastilla: Record<EstadoHijo, { fondo: string; texto: string }> = {
     en_casa: { fondo: tema.colors.surfaceVariant, texto: tema.colors.onSurfaceVariant },
     en_bus: { fondo: tema.colors.primary, texto: tema.colors.onPrimary },
-    entregado: { fondo: tema.colors.primaryContainer, texto: tema.colors.onPrimaryContainer },
+    entregado: { fondo: tema.colors.secondaryContainer, texto: tema.colors.onSecondaryContainer },
   };
 
   const avatarUsuario = (
@@ -366,6 +395,12 @@ export default function InicioPadreScreen() {
     );
   }
 
+  // Los hijos con el bus andando AHORA se llevan la pantalla entera; los demás
+  // quedan en tarjetas compactas debajo. Esa es toda la idea de este inicio:
+  // lo que está pasando se ve sin buscarlo.
+  const enViaje = fichas.filter((f) => f.viajeEnCurso);
+  const enReposo = fichas.filter((f) => !f.viajeEnCurso);
+
   return (
     <PantallaBase
       accionDerecha={avatarUsuario}
@@ -374,8 +409,8 @@ export default function InicioPadreScreen() {
     >
       {/* Saludo */}
       <View style={styles.saludo}>
-        <Text variant="headlineMedium" style={styles.negrita}>
-          Hola, {usuario?.nombre?.split(' ')[0] ?? ''}
+        <Text variant="headlineMedium">
+          {saludoDelDia()}, {usuario?.nombre?.split(' ')[0] ?? ''} 👋
         </Text>
         <Text variant="bodyMedium" style={[estilosBase.tenue, styles.fecha]}>
           {new Date().toLocaleDateString('es-HN', {
@@ -399,137 +434,271 @@ export default function InicioPadreScreen() {
         </Tarjeta>
       )}
 
-      {/* --- LA TARJETA PRINCIPAL: el viaje de cada hijo --- */}
-      {fichas.map((ficha) => {
+      {/* ================================================================
+          EL VIAJE EN CURSO — lo primero y lo más grande de la pantalla
+          ================================================================ */}
+      {enViaje.map((ficha, indice) => {
         const destino = destinoDe(ficha.nino);
         const estadoMapa = estadoMapaPorHijo.get(ficha.nino.id);
-        const mapa =
-          ficha.viajeEnCurso && destino
-            ? {
-                viajeId: ficha.viajeEnCurso.id,
-                lat: destino.lat,
-                lng: destino.lng,
-                nombre: destino.nombre,
-              }
-            : null;
+        const enVivo = estadoMapa?.tipo === 'en_vivo';
 
         // En la mañana el viaje va de la casa a la escuela; en la tarde, al revés
         const esManana = turnoActual() === 'manana';
-        const origen = esManana ? 'Casa' : ficha.escuelaNombre;
         const llegada = esManana ? ficha.escuelaNombre : (destino?.nombre ?? 'Casa');
 
         return (
-          <Tarjeta key={ficha.nino.id} sinRelleno>
-            <View style={styles.cuerpoViaje}>
-              {/* Quién viaja + estado */}
-              <TouchableRipple onPress={() => verPerfil(ficha.nino.id)} borderless>
-                <View style={styles.filaNino}>
-                  {ficha.nino.foto ? (
-                    <Avatar.Image size={50} source={{ uri: ficha.nino.foto }} />
-                  ) : (
-                    <Avatar.Text
-                      size={50}
-                      label={ficha.nino.nombre.trim().charAt(0).toUpperCase() || '?'}
-                      style={{ backgroundColor: tema.colors.primaryContainer }}
-                      color={tema.colors.onPrimaryContainer}
-                    />
-                  )}
-                  <View style={styles.datosNino}>
-                    <Text variant="titleMedium" numberOfLines={1} style={styles.negrita}>
-                      {ficha.nino.nombre}
-                    </Text>
-                    <Text variant="bodySmall" numberOfLines={1} style={estilosBase.tenue}>
-                      {ficha.escuelaNombre}
-                    </Text>
-                  </View>
-                  <View
-                    style={[styles.pastilla, { backgroundColor: colorPastilla[ficha.estado].fondo }]}
-                  >
-                    <Text variant="labelSmall" style={{ color: colorPastilla[ficha.estado].texto }}>
-                      {ETIQUETA_ESTADO[ficha.estado]}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableRipple>
-
-              {/* El recorrido dibujado */}
-              <LineaViaje
-                origen={origen}
-                destino={llegada}
-                etapa={ETAPA_DE_ESTADO[ficha.estado]}
-                horaOrigen={ficha.horaSubio}
-                horaDestino={ficha.horaBajo}
-              />
-            </View>
-
-            {/* Mapa en vivo: solo cuando el bus salió */}
-            {mapa && (
+          <AparicionSuave key={ficha.nino.id} indice={indice}>
+            <Tarjeta sinRelleno>
               <TouchableRipple onPress={() => verMapa(ficha)} borderless>
-                <View style={styles.marcoMapa}>
-                  <MapaBusEnVivo
-                    viajeId={mapa.viajeId}
-                    paradaLat={mapa.lat}
-                    paradaLng={mapa.lng}
-                    paradaNombre={mapa.nombre}
-                    interactivo={false}
-                    onEstado={(nuevo) =>
-                      setEstadoMapaPorHijo((prev) => new Map(prev).set(ficha.nino.id, nuevo))
-                    }
-                  />
-                  <View style={[styles.senal, { backgroundColor: tema.colors.surface }]}>
-                    <MaterialCommunityIcons
-                      name={estadoMapa?.tipo === 'en_vivo' ? 'access-point' : 'timer-sand'}
-                      size={13}
-                      color={
-                        estadoMapa?.tipo === 'en_vivo'
-                          ? tema.colors.primary
-                          : tema.colors.onSurfaceVariant
+                <View style={styles.hero}>
+                  {destino ? (
+                    <MapaBusEnVivo
+                      viajeId={ficha.viajeEnCurso!.id}
+                      paradaLat={destino.lat}
+                      paradaLng={destino.lng}
+                      paradaNombre={destino.nombre}
+                      interactivo={false}
+                      onEstado={(nuevo) =>
+                        setEstadoMapaPorHijo((prev) => new Map(prev).set(ficha.nino.id, nuevo))
                       }
+                      style={styles.mapaHero}
+                    />
+                  ) : (
+                    // El niño viaja pero nadie marcó su casa en el mapa: se dice
+                    // qué falta, en vez de mostrar un recuadro vacío
+                    <View
+                      style={[
+                        styles.mapaHero,
+                        styles.sinMapa,
+                        { backgroundColor: tema.colors.primaryContainer },
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name="map-marker-off-outline"
+                        size={30}
+                        color={tema.colors.onPrimaryContainer}
+                      />
+                      <Text
+                        variant="bodySmall"
+                        style={{ color: tema.colors.onPrimaryContainer, textAlign: 'center' }}
+                      >
+                        Falta marcar en el mapa dónde se recoge a {ficha.nino.nombre}. Pedilo desde
+                        Solicitudes.
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Señal del GPS: el puntito coral late en la mente del padre
+                      como "el bus está transmitiendo ahora" */}
+                  <View style={[styles.pastillaFlotante, { backgroundColor: tema.colors.surface }]}>
+                    <View
+                      style={[
+                        styles.puntoSenal,
+                        { backgroundColor: enVivo ? tema.colors.primary : tema.colors.outline },
+                      ]}
                     />
                     <Text variant="labelSmall">
-                      {estadoMapa?.tipo === 'en_vivo'
-                        ? `En vivo · ${estadoMapa.hora}`
-                        : 'Esperando señal'}
+                      {enVivo ? `En vivo · ${estadoMapa.hora}` : 'Esperando señal'}
                     </Text>
+                  </View>
+
+                  {/* Los datos montados sobre el mapa */}
+                  <View style={styles.velo}>
+                    <View style={styles.textoVelo}>
+                      <Text variant="titleMedium" numberOfLines={1} style={styles.blanco}>
+                        {ficha.nino.nombre}
+                      </Text>
+                      <View style={styles.filaMini}>
+                        <MaterialCommunityIcons
+                          name="map-marker"
+                          size={13}
+                          color="rgba(255,255,255,0.8)"
+                        />
+                        <Text variant="bodySmall" numberOfLines={1} style={styles.blancoTenue}>
+                          Va hacia {llegada}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.bloqueVelo}>
+                      <Text variant="labelSmall" style={styles.blancoTenue}>
+                        {ficha.horaSubio ? 'Subió' : 'Estado'}
+                      </Text>
+                      <Text variant="titleSmall" style={styles.blanco}>
+                        {ficha.horaSubio ?? ETIQUETA_ESTADO[ficha.estado]}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               </TouchableRipple>
-            )}
 
-            {/* Acciones de la tarjeta */}
-            <View style={[styles.pieTarjeta, { borderTopColor: tema.colors.outlineVariant }]}>
-              <TouchableRipple onPress={() => verPerfil(ficha.nino.id)} borderless style={styles.accionPie}>
-                <View style={styles.filaAccionPie}>
-                  <MaterialCommunityIcons name="account" size={17} color={tema.colors.primary} />
-                  <Text variant="labelLarge" style={{ color: tema.colors.primary }}>
-                    Perfil
-                  </Text>
-                </View>
-              </TouchableRipple>
-              <TouchableRipple onPress={() => verHistorial(ficha.nino)} borderless style={styles.accionPie}>
-                <View style={styles.filaAccionPie}>
-                  <MaterialCommunityIcons name="history" size={17} color={tema.colors.primary} />
-                  <Text variant="labelLarge" style={{ color: tema.colors.primary }}>
-                    Historial
-                  </Text>
-                </View>
-              </TouchableRipple>
-              {mapa && (
+              {/* Acciones de la tarjeta */}
+              <View style={[styles.pieTarjeta, { borderTopColor: tema.colors.outlineVariant }]}>
                 <TouchableRipple onPress={() => verMapa(ficha)} borderless style={styles.accionPie}>
                   <View style={styles.filaAccionPie}>
-                    <MaterialCommunityIcons name="map-marker" size={17} color={tema.colors.primary} />
+                    <MaterialCommunityIcons
+                      name="map-marker"
+                      size={17}
+                      color={tema.colors.primary}
+                    />
                     <Text variant="labelLarge" style={{ color: tema.colors.primary }}>
                       Mapa
                     </Text>
                   </View>
                 </TouchableRipple>
-              )}
-            </View>
-          </Tarjeta>
+                <TouchableRipple
+                  onPress={() => verPerfil(ficha.nino.id)}
+                  borderless
+                  style={styles.accionPie}
+                >
+                  <View style={styles.filaAccionPie}>
+                    <MaterialCommunityIcons name="account" size={17} color={tema.colors.primary} />
+                    <Text variant="labelLarge" style={{ color: tema.colors.primary }}>
+                      Perfil
+                    </Text>
+                  </View>
+                </TouchableRipple>
+                <TouchableRipple
+                  onPress={() => verHistorial(ficha.nino)}
+                  borderless
+                  style={styles.accionPie}
+                >
+                  <View style={styles.filaAccionPie}>
+                    <MaterialCommunityIcons name="history" size={17} color={tema.colors.primary} />
+                    <Text variant="labelLarge" style={{ color: tema.colors.primary }}>
+                      Historial
+                    </Text>
+                  </View>
+                </TouchableRipple>
+              </View>
+            </Tarjeta>
+          </AparicionSuave>
         );
       })}
 
-      {/* --- Atajos --- */}
+      {/* --- Los hijos que hoy no están viajando --- */}
+      {enReposo.length > 0 && (
+        <>
+          {enViaje.length > 0 && <TituloSeccion titulo="Tus otros hijos" />}
+          {enReposo.map((ficha, indice) => {
+            const destino = destinoDe(ficha.nino);
+            const esManana = turnoActual() === 'manana';
+            const origen = esManana ? 'Casa' : ficha.escuelaNombre;
+            const llegada = esManana ? ficha.escuelaNombre : (destino?.nombre ?? 'Casa');
+
+            return (
+              <AparicionSuave key={ficha.nino.id} indice={enViaje.length + indice}>
+                <Tarjeta onPress={() => verPerfil(ficha.nino.id)}>
+                  <View style={styles.filaSimple}>
+                    {ficha.nino.foto ? (
+                      <Avatar.Image size={46} source={{ uri: ficha.nino.foto }} />
+                    ) : (
+                      <Avatar.Text
+                        size={46}
+                        label={ficha.nino.nombre.trim().charAt(0).toUpperCase() || '?'}
+                        style={{ backgroundColor: tema.colors.primaryContainer }}
+                        color={tema.colors.onPrimaryContainer}
+                      />
+                    )}
+                    <View style={styles.textoFila}>
+                      <Text variant="titleSmall" numberOfLines={1} style={styles.negrita}>
+                        {ficha.nino.nombre}
+                      </Text>
+                      <Text variant="bodySmall" numberOfLines={1} style={estilosBase.tenue}>
+                        {ficha.escuelaNombre}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.pastilla,
+                        { backgroundColor: colorPastilla[ficha.estado].fondo },
+                      ]}
+                    >
+                      <Text
+                        variant="labelSmall"
+                        style={{ color: colorPastilla[ficha.estado].texto }}
+                      >
+                        {ETIQUETA_ESTADO[ficha.estado]}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <LineaViaje
+                    origen={origen}
+                    destino={llegada}
+                    etapa={ETAPA_DE_ESTADO[ficha.estado]}
+                    horaOrigen={ficha.horaSubio}
+                    horaDestino={ficha.horaBajo}
+                  />
+                </Tarjeta>
+              </AparicionSuave>
+            );
+          })}
+        </>
+      )}
+
+      {/* --- Avisos de la administración ---
+          Muestra el TEXTO del aviso: es información que la escuela quiere que
+          el padre lea hoy, no un enlace a otra pantalla. */}
+      <TituloSeccion
+        titulo="Avisos"
+        onVerTodo={canales.length > 0 ? () => router.push('/canales') : undefined}
+      />
+      {avisos.length === 0 ? (
+        <Tarjeta>
+          <View style={styles.filaSimple}>
+            <View style={[styles.circuloIcono, { backgroundColor: tema.colors.surfaceVariant }]}>
+              <MaterialCommunityIcons
+                name="bullhorn-outline"
+                size={20}
+                color={tema.colors.onSurfaceVariant}
+              />
+            </View>
+            <View style={styles.textoFila}>
+              <Text style={estilosBase.tenue}>
+                {canales.length === 0
+                  ? 'Todavía no hay canales de avisos para la escuela de tus hijos.'
+                  : 'Sin avisos nuevos. Acá vas a ver los comunicados de la escuela.'}
+              </Text>
+            </View>
+          </View>
+        </Tarjeta>
+      ) : (
+        avisos.slice(0, AVISOS_EN_INICIO).map((aviso, indice) => (
+          <AparicionSuave key={aviso.id} indice={indice}>
+            <TarjetaAviso
+              aviso={aviso}
+              canalNombre={nombrePorCanal.get(aviso.canalId)}
+              lineas={4}
+              onPress={() =>
+                router.push({
+                  pathname: '/canal',
+                  params: {
+                    canalId: aviso.canalId,
+                    canalNombre: nombrePorCanal.get(aviso.canalId) ?? 'Avisos',
+                  },
+                })
+              }
+            />
+          </AparicionSuave>
+        ))
+      )}
+
+      {/* --- Accesos, en grilla de dos por fila --- */}
+      <View style={styles.filaTiles}>
+        <TileAccion
+          titulo="Mensajes"
+          detalle={resumenes[0]?.ultimoTexto ?? 'Conductor y administración'}
+          icono="message-text"
+          insignia={totalNoLeidos}
+          onPress={() => router.push('/mensajes')}
+        />
+        <TileAccion
+          titulo="Solicitudes"
+          detalle="Lo que pediste y su estado"
+          icono="file-document-edit"
+          onPress={() => router.push('/solicitudes')}
+        />
+      </View>
       <View style={styles.filaTiles}>
         <TileAccion
           titulo="Inscribir un hijo"
@@ -545,50 +714,6 @@ export default function InicioPadreScreen() {
           onPress={() => router.push('/nueva-solicitud-cambio')}
         />
       </View>
-
-      {/* --- Avisos de la escuela --- */}
-      <TituloSeccion titulo="Avisos" onVerTodo={() => router.push('/canales')} />
-      {canales.length === 0 ? (
-        <Tarjeta>
-          <Text style={estilosBase.tenue}>
-            Todavía no hay canales de avisos para la escuela de tus hijos.
-          </Text>
-        </Tarjeta>
-      ) : (
-        canales.slice(0, 2).map((canal) => (
-          <Tarjeta
-            key={canal.id}
-            onPress={() =>
-              router.push({ pathname: '/canal', params: { canalId: canal.id, canalNombre: canal.nombre } })
-            }
-          >
-            <View style={styles.filaSimple}>
-              <View style={[styles.circuloIcono, { backgroundColor: tema.colors.tertiaryContainer }]}>
-                <MaterialCommunityIcons
-                  name="bullhorn"
-                  size={20}
-                  color={tema.colors.onTertiaryContainer}
-                />
-              </View>
-              <View style={styles.textoFila}>
-                <Text variant="titleSmall" numberOfLines={1} style={styles.negrita}>
-                  {canal.nombre}
-                </Text>
-                {!!canal.descripcion && (
-                  <Text variant="bodySmall" numberOfLines={1} style={estilosBase.tenue}>
-                    {canal.descripcion}
-                  </Text>
-                )}
-              </View>
-              <MaterialCommunityIcons
-                name="chevron-right"
-                size={22}
-                color={tema.colors.onSurfaceVariant}
-              />
-            </View>
-          </Tarjeta>
-        ))
-      )}
 
       {/* --- Viajes pasados --- */}
       <TituloSeccion titulo="Viajes pasados" />
@@ -606,11 +731,29 @@ export default function InicioPadreScreen() {
                 indice > 0 && { borderTopWidth: 1, borderTopColor: tema.colors.outlineVariant },
               ]}
             >
-              <MaterialCommunityIcons
-                name={evento.evento === 'subio' ? 'bus-clock' : 'home-import-outline'}
-                size={20}
-                color={tema.colors.primary}
-              />
+              {/* Coral para las subidas, aqua para las entregas: los mismos dos
+                  colores que usa el estado en toda la app */}
+              <View
+                style={[
+                  styles.circuloEvento,
+                  {
+                    backgroundColor:
+                      evento.evento === 'subio'
+                        ? tema.colors.primaryContainer
+                        : tema.colors.secondaryContainer,
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={evento.evento === 'subio' ? 'bus-clock' : 'home-import-outline'}
+                  size={18}
+                  color={
+                    evento.evento === 'subio'
+                      ? tema.colors.onPrimaryContainer
+                      : tema.colors.onSecondaryContainer
+                  }
+                />
+              </View>
               <View style={styles.textoFila}>
                 <Text variant="bodyMedium">
                   {evento.ninoNombre} {evento.evento === 'subio' ? 'subió al bus' : 'bajó del bus'}
@@ -623,37 +766,6 @@ export default function InicioPadreScreen() {
           ))
         )}
       </Tarjeta>
-
-      {/* --- Mensajes --- */}
-      <TituloSeccion titulo="Mensajes" onVerTodo={() => router.push('/mensajes')} />
-      <Tarjeta onPress={() => router.push('/mensajes')}>
-        <View style={styles.filaSimple}>
-          <View style={[styles.circuloIcono, { backgroundColor: tema.colors.primaryContainer }]}>
-            <MaterialCommunityIcons
-              name="message-text"
-              size={20}
-              color={tema.colors.onPrimaryContainer}
-            />
-          </View>
-          <View style={styles.textoFila}>
-            <Text variant="titleSmall" style={styles.negrita}>
-              {totalNoLeidos > 0 ? 'Tenés mensajes sin leer' : 'Conversaciones'}
-            </Text>
-            <Text variant="bodySmall" numberOfLines={1} style={estilosBase.tenue}>
-              {resumenes[0]?.ultimoTexto ?? 'Escribile al conductor o a la administración'}
-            </Text>
-          </View>
-          {totalNoLeidos > 0 ? (
-            <Badge style={{ backgroundColor: tema.colors.error }}>{totalNoLeidos}</Badge>
-          ) : (
-            <MaterialCommunityIcons
-              name="chevron-right"
-              size={22}
-              color={tema.colors.onSurfaceVariant}
-            />
-          )}
-        </View>
-      </Tarjeta>
     </PantallaBase>
   );
 }
@@ -664,32 +776,69 @@ const styles = StyleSheet.create({
   fecha: { textTransform: 'capitalize' },
   avatarToque: { borderRadius: 19 },
 
-  // Tarjeta del viaje
-  cuerpoViaje: { padding: ESPACIO.pantalla, gap: ESPACIO.seccion },
-  filaNino: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno },
-  datosNino: { flex: 1, gap: 2 },
-  pastilla: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIO.pastilla },
-  marcoMapa: { height: ALTURA.mapaPrevia, position: 'relative' },
-  senal: {
+  // --- El héroe: el viaje en curso ---
+  hero: { position: 'relative' },
+  mapaHero: { height: ALTURA.heroMapa },
+  sinMapa: { alignItems: 'center', justifyContent: 'center', gap: 10, padding: ESPACIO.pantalla },
+  pastillaFlotante: {
     position: 'absolute',
-    left: 12,
     top: 12,
+    left: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 7,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: RADIO.pastilla,
-    opacity: 0.95,
+    ...SOMBRA_FLOTANTE,
   },
+  puntoSenal: { width: 8, height: 8, borderRadius: 4 },
+  // Velo tostado (no gris) para que el mapa siga leyéndose debajo y el texto
+  // blanco tenga contraste suficiente
+  velo: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: ESPACIO.interno,
+    paddingHorizontal: ESPACIO.pantalla,
+    paddingVertical: 14,
+    backgroundColor: 'rgba(35, 14, 5, 0.66)',
+  },
+  textoVelo: { flex: 1, gap: 2 },
+  bloqueVelo: { alignItems: 'flex-end', gap: 2 },
+  blanco: { color: '#FFFFFF', fontWeight: '700' },
+  blancoTenue: { color: 'rgba(255, 255, 255, 0.78)' },
+  filaMini: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   pieTarjeta: { flexDirection: 'row', borderTopWidth: 1 },
   accionPie: { flex: 1, paddingVertical: 14 },
   filaAccionPie: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
 
-  // Secciones de abajo
-  filaTiles: { flexDirection: 'row', gap: ESPACIO.interno },
+  // --- Resto de la pantalla ---
   filaSimple: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno },
-  circuloIcono: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   textoFila: { flex: 1, gap: 2 },
-  filaEvento: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno, paddingVertical: 10 },
+  pastilla: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIO.pastilla },
+  circuloIcono: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filaTiles: { flexDirection: 'row', gap: ESPACIO.interno },
+  filaEvento: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: ESPACIO.interno,
+    paddingVertical: 10,
+  },
+  circuloEvento: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

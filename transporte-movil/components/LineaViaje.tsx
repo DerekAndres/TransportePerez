@@ -9,7 +9,7 @@ import { ESPACIO } from '@/constants/estilos';
 // ============================================
 // Muestra el viaje del niño como un recorrido con tres hitos: de dónde sale,
 // el bus en el medio y a dónde llega. Es la forma más rápida de entender el
-// estado sin leer: la parte recorrida va en azul y la que falta en gris.
+// estado sin leer: la parte recorrida va en coral y la que falta en gris.
 //
 //   ●━━━━━━━🚌┈┈┈┈┈┈┈○
 //   Casa                Escuela
@@ -45,7 +45,7 @@ export default function LineaViaje({
   return (
     <View style={styles.contenedor}>
       <View style={styles.riel}>
-        {/* Origen: se marca en azul apenas el niño sube */}
+        {/* Origen: se marca en coral apenas el niño sube */}
         <View
           style={[
             styles.nodo,

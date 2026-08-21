@@ -1,6 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 import { WebView } from 'react-native-webview';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import PantallaBase from '@/components/PantallaBase';
@@ -25,36 +26,37 @@ function generarHtmlRecorrido(paradas: ParadaRecorrido[]) {
     html, body, #mapa { height: 100%; margin: 0; }
     /* El marcador muestra SOLO el número de orden: el conductor va en orden y
        no tiene que leer nada mientras maneja. El detalle está en la ficha que
-       se abre al tocarlo. Colores de la marca: casas en blanco con número azul;
-       el punto de transbordo lleno de rojo (es la excepción, tiene que llamar la
-       atención) y las escuelas llenas de azul marino (el destino). */
+       se abre al tocarlo. Colores de la marca (ver constants/tema.ts): las casas
+       en blanco con el número coral; el punto de transbordo lleno de aqua (es la
+       excepción, tiene que distinguirse) y las escuelas llenas de mango (el
+       destino del viaje). */
     .parada {
       background: #fff; border-radius: 50%;
       width: 34px; height: 34px;
       display: flex; align-items: center; justify-content: center;
       font: 700 15px/1 -apple-system, 'Segoe UI', Roboto, sans-serif;
-      color: #1565C0;
+      color: #12659E;
       box-shadow: 0 2px 8px rgba(13, 40, 84, .35);
-      border: 2px solid #1565C0;
+      border: 2px solid #12659E;
       box-sizing: border-box;
       /* centra el círculo sobre la coordenada (el divIcon ancla arriba-izquierda) */
       transform: translate(-50%, -50%);
     }
-    .parada-punto { background: #C62828; color: #fff; border-color: #fff; }
-    .parada-escuela { background: #0A3466; color: #fff; border-color: #fff; }
+    .parada-punto { background: #1B7A5A; color: #fff; border-color: #fff; }
+    .parada-escuela { background: #8A5B00; color: #fff; border-color: #fff; }
 
     /* Ficha que se abre al tocar una parada */
     .ficha { font: 13px/1.4 -apple-system, 'Segoe UI', Roboto, sans-serif; min-width: 180px; }
-    .ficha-titulo { font-weight: 700; font-size: 14px; color: #0A3466; margin-bottom: 2px; }
+    .ficha-titulo { font-weight: 700; font-size: 14px; color: #3D0B00; margin-bottom: 2px; }
     .ficha-ref {
-      background: #FFF3E0; border-left: 3px solid #C62828;
+      background: #E8F5EF; border-left: 3px solid #1B7A5A;
       padding: 5px 7px; border-radius: 4px; margin: 6px 0; color: #4a3b2a;
     }
     .ficha-etiqueta { font-size: 11px; text-transform: uppercase; color: #74777F; margin-top: 8px; }
     .ficha-nino { display: flex; align-items: center; gap: 7px; margin-top: 5px; }
     .ficha-foto {
       width: 30px; height: 30px; border-radius: 50%; object-fit: cover;
-      background: #D7E3FF; color: #0D4A8F;
+      background: #FFDBCF; color: #8C2F0C;
       display: flex; align-items: center; justify-content: center;
       font-weight: 700; font-size: 13px; flex: none;
     }
@@ -139,13 +141,13 @@ function generarHtmlRecorrido(paradas: ParadaRecorrido[]) {
 
     // Línea punteada recta entre paradas: es el RESPALDO mientras se calcula el
     // camino real (o si el servicio de ruteo no responde)
-    var respaldo = L.polyline(linea, { color: '#1565C0', weight: 3, dashArray: '6 8', opacity: 0.8 }).addTo(mapa);
+    var respaldo = L.polyline(linea, { color: '#12659E', weight: 3, dashArray: '6 8', opacity: 0.8 }).addTo(mapa);
     mapa.fitBounds(L.latLngBounds(linea), { padding: [40, 40], maxZoom: 16 });
 
     // Camino real POR LAS CALLES con OSRM (ruteo de OpenStreetMap, sin API key):
     // se pide una sola vez con todas las paradas en orden y, si responde, la
-    // línea de calles reemplaza a la punteada. Dos trazos (borde blanco + azul)
-    // para que se lea nítida sobre el mapa claro.
+    // línea de calles reemplaza a la punteada. Dos trazos
+    // para que se lea nítida sobre el mapa claro (borde blanco + coral).
     if (linea.length >= 2) {
       var coords = linea.map(function (p) { return p[1] + ',' + p[0]; }).join(';');
       fetch('https://router.project-osrm.org/route/v1/driving/' + coords + '?overview=full&geometries=geojson')
@@ -156,7 +158,7 @@ function generarHtmlRecorrido(paradas: ParadaRecorrido[]) {
           var puntos = d.routes[0].geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
           mapa.removeLayer(respaldo);
           L.polyline(puntos, { color: '#fff', weight: 9, opacity: .9, lineCap: 'round', lineJoin: 'round' }).addTo(mapa);
-          L.polyline(puntos, { color: '#1565C0', weight: 5, opacity: .95, lineCap: 'round', lineJoin: 'round' }).addTo(mapa);
+          L.polyline(puntos, { color: '#12659E', weight: 5, opacity: .95, lineCap: 'round', lineJoin: 'round' }).addTo(mapa);
         })
         .catch(function () { /* se queda la línea punteada, el mapa sigue sirviendo */ });
     }
@@ -167,6 +169,7 @@ function generarHtmlRecorrido(paradas: ParadaRecorrido[]) {
 
 export default function RecorridoScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ rutaNombre: string; paradas: string }>();
 
   // Las paradas llegan serializadas desde "Mi ruta de hoy" (ya derivadas y ordenadas)
@@ -191,7 +194,8 @@ export default function RecorridoScreen() {
       ) : (
         <>
           <WebView source={{ html: generarHtmlRecorrido(paradas) }} style={styles.mapa} />
-          <Text variant="bodySmall" style={styles.pie}>
+          {/* Separado de la barra de navegación del teléfono */}
+          <Text variant="bodySmall" style={[styles.pie, { paddingBottom: insets.bottom + 8 }]}>
             Los números marcan el orden del recorrido. Tocá una parada para ver el punto de
             referencia y quiénes suben o bajan ahí.
           </Text>

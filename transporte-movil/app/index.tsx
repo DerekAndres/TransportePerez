@@ -1,28 +1,24 @@
-import { StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Button, Text } from 'react-native-paper';
 import { Redirect } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
+import PortadaAnimada from '@/components/PortadaAnimada';
 
 // Pantalla "despachadora": según quién esté logueado, redirige a su sección.
 export default function IndexScreen() {
-  const { usuario, cargando, logout } = useAuth();
+  const { usuario, cargando } = useAuth();
 
+  // Mientras se resuelve la sesión, la PORTADA de la app: la marca y el busito
+  // andando. Es el único momento en que el usuario ve esta pantalla.
   if (cargando) {
-    return (
-      <View style={styles.centrado}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
+    return <PortadaAnimada />;
   }
 
   if (!usuario) {
     return <Redirect href="/login" />;
   }
 
-  // Cuenta recién invitada: primero define su contraseña y completa sus datos.
-  // Cubre los dos caminos de entrada: canjear el código en "Registrarse" o
-  // entrar por el login normal tras el correo de restablecer contraseña.
+  // Cuenta recién creada por el admin: primero completa su teléfono y su foto
+  // (la contraseña ya la definió con el correo de Firebase). Una sola vez.
   if (usuario.debeCompletarPerfil) {
     return <Redirect href="/completar-perfil" />;
   }
@@ -35,34 +31,8 @@ export default function IndexScreen() {
     return <Redirect href="/hijos" />;
   }
 
-  // rol === 'admin': la app móvil no es para administradores
-  return (
-    <View style={styles.centrado}>
-      <Text variant="titleMedium" style={styles.aviso}>
-        Los administradores usan el panel web.
-      </Text>
-      <Text variant="bodyMedium" style={styles.aviso}>
-        Esta app es para conductores y padres.
-      </Text>
-      <Button mode="contained" onPress={() => logout()} style={styles.boton}>
-        Cerrar sesión
-      </Button>
-    </View>
-  );
+  // rol === 'admin': en el teléfono tiene la parte de VIGILANCIA (cómo van las
+  // rutas, mensajes y avisos). Administrar —crear usuarios, buses, escuelas,
+  // niños y rutas— sigue siendo del panel web.
+  return <Redirect href="/monitoreo" />;
 }
-
-const styles = StyleSheet.create({
-  centrado: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    gap: 8,
-  },
-  aviso: {
-    textAlign: 'center',
-  },
-  boton: {
-    marginTop: 12,
-  },
-});

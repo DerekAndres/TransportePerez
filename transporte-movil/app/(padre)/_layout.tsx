@@ -4,7 +4,10 @@ import { ActivityIndicator } from 'react-native-paper';
 import { Redirect, Stack } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
-import { registrarTokenPush } from '@/services/notificacionesService';
+import {
+  registrarTokenPush,
+  reintentarAvisosPendientes,
+} from '@/services/notificacionesService';
 
 // Layout protegido: solo un padre logueado puede ver las pantallas de este grupo.
 //
@@ -20,7 +23,11 @@ export default function PadreLayout() {
   // Fase 6: al entrar, pedir permiso y registrar el token push del padre —
   // acá llegan los avisos de subió/bajó y "el bus está cerca"
   useEffect(() => {
-    if (uid) registrarTokenPush(uid).catch(() => {});
+    if (!uid) return;
+    registrarTokenPush(uid).catch(() => {});
+    // Al abrir la app se reintenta lo que haya quedado sin enviar por falta de
+    // señal (ver COLA DE AVISOS PENDIENTES en notificacionesService)
+    reintentarAvisosPendientes().catch(() => {});
   }, [uid]);
 
   if (cargando) {
@@ -44,7 +51,10 @@ export default function PadreLayout() {
     return <Redirect href="/" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  // `animation`: las pantallas entran deslizándose desde la derecha y vuelven
+  // igual. Es la transición que el usuario espera de una app nativa y hace que
+  // navegar se sienta continuo en vez de un corte seco entre pantallas.
+  return <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }} />;
 }
 
 const styles = StyleSheet.create({

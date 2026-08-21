@@ -39,7 +39,10 @@ function generarHtmlMapa(
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    html, body, #mapa { height: 100%; margin: 0; background: #fff; }
+    /* Los colores de acá replican los del tema (constants/tema.ts): coral para
+       el bus —lo que se mueve— y aqua para la parada —el destino—. Van escritos
+       a mano porque este HTML corre dentro del WebView, aislado de React. */
+    html, body, #mapa { height: 100%; margin: 0; background: #FFFFFF; }
     /* Transición suave: el marcador "viaja" hacia la posición nueva en vez de saltar */
     .marcador-bus { transition: transform 0.9s linear; }
     /* Marcadores tipo burbuja: círculo con sombra, como en las apps modernas */
@@ -47,11 +50,24 @@ function generarHtmlMapa(
       width: 42px; height: 42px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       font-size: 21px; background: #fff;
-      border: 3px solid #C62828;
-      box-shadow: 0 3px 10px rgba(13, 40, 84, .35);
+      border: 3px solid #1B7A5A;
+      box-shadow: 0 3px 12px rgba(90, 31, 10, .35);
       box-sizing: border-box;
+      /* referencia para el halo del bus, que se posiciona sobre esta burbuja */
+      position: relative;
     }
-    .burbuja-bus { background: #1565C0; border-color: #fff; }
+    .burbuja-bus { background: #12659E; border-color: #fff; }
+    /* Halo que late alrededor del bus: se ve de un vistazo que la posición está
+       viva y no es una foto vieja del mapa */
+    .burbuja-bus::after {
+      content: ''; position: absolute; inset: -3px;
+      border-radius: 50%; border: 2px solid #12659E;
+      animation: latido 2s ease-out infinite;
+    }
+    @keyframes latido {
+      0%   { transform: scale(1);   opacity: .8; }
+      100% { transform: scale(2.1); opacity: 0; }
+    }
   </style>
 </head>
 <body>
@@ -80,7 +96,7 @@ function generarHtmlMapa(
       maxZoom: 20
     }).addTo(mapa);
 
-    // Marcador fijo: la casa/parada del niño (burbuja blanca con borde rojo)
+    // Marcador fijo: la casa/parada del niño (burbuja blanca con borde aqua)
     var marcadorParada = L.marker([PARADA.lat, PARADA.lng], {
       icon: L.divIcon({
         className: '',
@@ -91,11 +107,11 @@ function generarHtmlMapa(
     }).addTo(mapa);
     if (INTERACTIVO) marcadorParada.bindPopup(${JSON.stringify(paradaNombre || 'Parada')});
 
-    // Marcador móvil: el bus (burbuja azul; se crea con la primera coordenada)
+    // Marcador móvil: el bus (burbuja coral; se crea con la primera coordenada)
     var marcadorBus = null;
     var primeraVez = true;
 
-    // Camino por las calles del bus a la casa (dos líneas: borde blanco + azul,
+    // Camino por las calles del bus a la casa (dos líneas: borde blanco + coral,
     // para que se lea nítida sobre el mapa claro)
     var rutaBorde = null;
     var rutaLinea = null;
@@ -124,7 +140,7 @@ function generarHtmlMapa(
           var puntos = d.routes[0].geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
           if (!rutaLinea) {
             rutaBorde = L.polyline(puntos, { color: '#fff', weight: 9, opacity: .9, lineCap: 'round', lineJoin: 'round' }).addTo(mapa);
-            rutaLinea = L.polyline(puntos, { color: '#1565C0', weight: 5, opacity: .95, lineCap: 'round', lineJoin: 'round' }).addTo(mapa);
+            rutaLinea = L.polyline(puntos, { color: '#12659E', weight: 5, opacity: .95, lineCap: 'round', lineJoin: 'round' }).addTo(mapa);
           } else {
             rutaBorde.setLatLngs(puntos);
             rutaLinea.setLatLngs(puntos);

@@ -5,15 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Descargar la app — Transporte Perez</title>
   <meta name="description" content="Descargá la aplicación de Inversiones Perez para seguir el bus escolar de tus hijos en tiempo real." />
-  <link rel="icon" href="/vite.svg" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <style>
     /* Página pública de descarga del APK (piloto).
        Es un archivo estático en public/, NO parte de la app React: así se abre
        sin iniciar sesión y carga al instante en el teléfono de los padres. */
     :root {
-      --azul: #228be6;
-      --azul-oscuro: #1971c2;
-      --amarillo: #f6b73c;
+      --azul: #12659E;
+      --azul-oscuro: #0E5384;
+      --amarillo: #F0C24E;
       --texto: #1a1b1e;
       --texto-suave: #5c5f66;
       --borde: #dee2e6;
@@ -32,10 +33,13 @@
     .contenedor { width: 100%; max-width: 560px; }
 
     header { text-align: center; margin-bottom: 28px; }
+    /* El logo real de la empresa (antes era un emoji de bus) */
     .logo {
-      font-size: 52px;
-      line-height: 1;
-      margin-bottom: 12px;
+      width: 112px;
+      height: 112px;
+      border-radius: 24px;
+      margin: 0 auto 12px;
+      display: block;
     }
     h1 { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
     .subtitulo { color: var(--texto-suave); font-size: 15px; }
@@ -137,7 +141,7 @@
 <body>
   <div class="contenedor">
     <header>
-      <div class="logo">🚌</div>
+      <img class="logo" src="/logo.png" alt="Inversiones Perez, transporte escolar" width="112" height="112" />
       <h1>Transporte Perez</h1>
       <p class="subtitulo">Seguí el bus escolar de tus hijos en tiempo real</p>
     </header>
@@ -182,7 +186,12 @@
   <script>
     // ⬇️ ÚNICO VALOR A CAMBIAR: pegá acá el enlace del APK que imprime
     //    `eas build --platform android --profile preview` al terminar.
-    var ENLACE_APK = "PENDIENTE";
+    //    Compilado el 2026-08-19 (versión 1.0.0, versionCode 1). Incluye el logo
+    //    nuevo, la portada animada y la paleta sacada del logo.
+    //    Ojo: en el plan gratuito, EAS conserva el archivo 30 DÍAS. Si el
+    //    piloto se extiende, recompilá y actualizá este enlace.
+    var ENLACE_APK =
+      "https://expo.dev/artifacts/eas/YwIuOcwwxJEazMjzGAdOIGJBqnLiwojH8XEauGgD1pw.apk";
 
     var zona = document.getElementById("zona-descarga");
     if (ENLACE_APK && ENLACE_APK !== "PENDIENTE") {

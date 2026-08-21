@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import {
   Avatar,
   Button,
@@ -9,13 +9,16 @@ import {
   TextInput,
   useTheme,
 } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
 import Campo from '@/components/Campo';
+import { useAlturaTeclado } from '@/hooks/use-teclado';
 import { completarRegistro } from '@/services/authService';
 import { elegirFotoComprimida } from '@/utils/fotos';
 import { ESPACIO, RADIO, SOMBRA_TARJETA, fondoTarjeta } from '@/constants/estilos';
+import { FRANJA_TROPICAL } from '@/constants/tema';
 
 // Alta del usuario, primera vez que entra. La contraseña ya la definió con el
 // enlace que le envió Firebase; acá completa lo que ese enlace no puede pedirle:
@@ -24,6 +27,8 @@ import { ESPACIO, RADIO, SOMBRA_TARJETA, fondoTarjeta } from '@/constants/estilo
 export default function CompletarPerfilScreen() {
   const { usuario, cargando, logout, refrescarPerfil } = useAuth();
   const tema = useTheme();
+  const insets = useSafeAreaInsets();
+  const altoTeclado = useAlturaTeclado();
 
   const [nombre, setNombre] = useState(usuario?.nombre ?? '');
   const [telefono, setTelefono] = useState(usuario?.telefono ?? '');
@@ -68,12 +73,20 @@ export default function CompletarPerfilScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.contenedor}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <View style={[styles.encabezado, { backgroundColor: tema.colors.primary }]}>
+    <View style={styles.contenedor}>
+      {/* El espacio de abajo crece con el teclado: el formulario se puede
+          desplazar hasta el botón de guardar en cualquier teléfono */}
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + altoTeclado }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View
+          style={[
+            styles.encabezado,
+            { backgroundColor: tema.colors.primary, paddingTop: insets.top + 36 },
+          ]}
+        >
           <Text variant="headlineSmall" style={[styles.titulo, { color: tema.colors.onPrimary }]}>
             Completá tu perfil
           </Text>
@@ -81,9 +94,14 @@ export default function CompletarPerfilScreen() {
             {usuario.rol === 'conductor' ? 'Conductor' : 'Padre / Madre'} · solo esta vez
           </Text>
         </View>
-        <View style={[styles.franjaRoja, { backgroundColor: tema.colors.tertiary }]} />
+        {/* Franja de marca coral · mango · aqua */}
+        <View style={styles.franja}>
+          {FRANJA_TROPICAL.map((color) => (
+            <View key={color} style={[styles.tramoFranja, { backgroundColor: color }]} />
+          ))}
+        </View>
 
-        <View style={[styles.tarjeta, { backgroundColor: fondoTarjeta(tema) }]}>
+        <View style={[styles.tarjeta, { backgroundColor: fondoTarjeta(tema), borderColor: tema.colors.outlineVariant }]}>
           {/* Foto de perfil */}
           <View style={styles.filaFoto}>
             <View>
@@ -152,7 +170,7 @@ export default function CompletarPerfilScreen() {
           </Button>
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -162,13 +180,13 @@ const styles = StyleSheet.create({
   encabezado: {
     alignItems: 'center',
     gap: 6,
-    paddingTop: 72,
     paddingBottom: 28,
     paddingHorizontal: 24,
   },
   titulo: { fontWeight: '700' },
   lema: { opacity: 0.85 },
-  franjaRoja: { height: 6 },
+  franja: { flexDirection: 'row', height: 6 },
+  tramoFranja: { flex: 1 },
   tarjeta: {
     margin: ESPACIO.pantalla,
     marginTop: 24,
@@ -177,6 +195,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIO.tarjeta,
     gap: 10,
     ...SOMBRA_TARJETA,
+    borderWidth: 1,
   },
   filaFoto: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 4 },
   botonCamara: { position: 'absolute', bottom: -10, right: -14 },

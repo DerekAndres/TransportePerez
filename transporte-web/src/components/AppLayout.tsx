@@ -58,6 +58,13 @@ export default function AppLayout() {
         <Group h="100%" px="md" justify="space-between">
           <Group>
             <Burger opened={menuAbierto} onClick={toggle} hiddenFrom="sm" size="sm" />
+            <img
+              src="/logo.png"
+              alt=""
+              width={28}
+              height={28}
+              style={{ borderRadius: 6, display: "block" }}
+            />
             <Title order={4}>Transporte Perez</Title>
           </Group>
           <Group>

@@ -7,7 +7,8 @@ import { useAuth } from '@/context/AuthContext';
 import GrupoAsistencia, { type ItemAsistencia } from '@/components/GrupoAsistencia';
 import PantallaBase from '@/components/PantallaBase';
 import Tarjeta from '@/components/Tarjeta';
-import { estilosBase } from '@/constants/estilos';
+import TituloSeccion from '@/components/TituloSeccion';
+import { RADIO, estilosBase } from '@/constants/estilos';
 import { fechaDeHoy, listarRegistrosDeViaje } from '@/services/viajesService';
 import { notificarEventoAlPadre } from '@/services/notificacionesService';
 import {
@@ -227,7 +228,7 @@ export default function TransbordoScreen() {
         {/* ENTREGA */}
         {entregaIds.length > 0 && (
           <>
-            <Text variant="titleMedium">Entrego acá (bajan de mi bus)</Text>
+            <TituloSeccion titulo="Entrego acá (bajan de mi bus)" />
             <GrupoAsistencia
               titulo={`En ${params.puntoNombre}`}
               items={itemsEntrega}
@@ -264,10 +265,8 @@ export default function TransbordoScreen() {
         {/* RECIBE */}
         {recibeIds.length > 0 && (
           <>
-            <Text variant="titleMedium" style={styles.seccion}>
-              Recibo acá (suben a mi bus)
-            </Text>
-            <Text variant="bodySmall" style={estilosBase.tenue}>
+            <TituloSeccion titulo="Recibo acá (suben a mi bus)" />
+            <Text variant="bodySmall" style={[estilosBase.tenue, styles.aclaracion]}>
               Esta lista se llena sola con los niños que deja el otro bus.
             </Text>
             <GrupoAsistencia
@@ -290,7 +289,7 @@ export default function TransbordoScreen() {
             {demorado ? (
               <Chip icon="timer-sand">Demora marcada</Chip>
             ) : (
-              <Button mode="outlined" icon="timer-sand" onPress={esperar}>
+              <Button mode="outlined" icon="timer-sand" style={styles.boton} onPress={esperar}>
                 Esperar
               </Button>
             )}
@@ -298,6 +297,7 @@ export default function TransbordoScreen() {
               mode="outlined"
               icon="skip-next"
               textColor={tema.colors.error}
+              style={styles.boton}
               onPress={continuarSinTransbordo}
             >
               Continuar sin transbordo
@@ -310,8 +310,10 @@ export default function TransbordoScreen() {
 }
 
 const styles = StyleSheet.create({
-  seccion: { marginTop: 8, fontWeight: '700' },
+  // Pega la aclaración al título de la sección que está justo arriba
+  aclaracion: { marginTop: -14 },
   negrita: { fontWeight: '700' },
   contingencia: { marginTop: 8 },
   filaBotones: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  boton: { borderRadius: RADIO.control },
 });

@@ -44,6 +44,7 @@ import {
   padresDeEscuela,
   publicarAviso,
 } from "../services/canalesService";
+import { notificarAvisoNuevo } from "../services/notificacionesService";
 import { listarEscuelas } from "../services/escuelasService";
 import { listarNinos } from "../services/ninosService";
 import { listarUsuarios } from "../services/usuariosService";
@@ -209,6 +210,14 @@ export default function CanalesScreen() {
     setTexto("");
     try {
       await publicarAviso(seleccionId, limpio, usuario.id);
+      // Push a los padres del canal, para que les llegue al teléfono aunque
+      // tengan la app cerrada. Va sin await: el aviso ya quedó publicado, y un
+      // fallo de envío no debe hacerle creer al admin que no se publicó.
+      if (seleccion) {
+        notificarAvisoNuevo(seleccion.id, seleccion.nombre, miembrosDeSeleccion, limpio).catch(
+          () => {}
+        );
+      }
     } catch {
       setTexto(limpio); // se devuelve el texto para reintentar
       notifications.show({ color: "red", message: "No se pudo publicar el aviso." });

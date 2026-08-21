@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import PantallaBase from '@/components/PantallaBase';
@@ -14,6 +15,7 @@ import { ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
 export default function MapaEnVivoScreen() {
   const router = useRouter();
   const tema = useTheme();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     viajeId: string;
     hijoNombre: string;
@@ -78,9 +80,18 @@ export default function MapaEnVivoScreen() {
           style={styles.mapa}
         />
 
-        <Text variant="bodySmall" style={[estilosBase.tenue, styles.pie]}>
+        {/* El pie se separa de la barra de navegación del teléfono (los tres
+            botones de Android o la barra de gestos), que si no lo taparía */}
+        <Text
+          variant="bodySmall"
+          style={[
+            estilosBase.tenue,
+            styles.pie,
+            { paddingBottom: insets.bottom + ESPACIO.interno },
+          ]}
+        >
           🏠 {params.paradaNombre || 'Parada'} · 🚌 el bus se actualiza cada ~15-20 s · la línea
-          azul sigue las calles
+          coral sigue las calles
         </Text>
       </View>
     </PantallaBase>

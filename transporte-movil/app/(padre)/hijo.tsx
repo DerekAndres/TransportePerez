@@ -319,6 +319,6 @@ const styles = StyleSheet.create({
   portada: { width: '100%', height: ALTURA.portada },
   cuerpoTransporte: { padding: ESPACIO.pantalla, gap: ESPACIO.interno },
   filaBotones: { flexDirection: 'row', gap: ESPACIO.interno },
-  boton: { flex: 1 },
+  boton: { flex: 1, borderRadius: RADIO.control },
   centrado: { textAlign: 'center' },
 });

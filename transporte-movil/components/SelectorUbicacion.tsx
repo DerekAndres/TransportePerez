@@ -50,7 +50,7 @@ function htmlVistaPrevia(lat: number, lng: number) {
       width: 40px; height: 40px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       font-size: 20px; background: #fff;
-      border: 3px solid #C62828;
+      border: 3px solid #1B7A5A;
       box-shadow: 0 3px 10px rgba(13, 40, 84, .35);
       box-sizing: border-box;
     }
@@ -394,8 +394,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#fff',
     borderWidth: 3,
-    borderColor: '#C62828',
-    shadowColor: '#0D2854',
+    borderColor: '#1B7A5A',
+    shadowColor: '#5A1F0A',
     shadowOpacity: 0.35,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     bottom: 14,
     borderRadius: 26,
     elevation: 4,
-    shadowColor: '#0D2854',
+    shadowColor: '#5A1F0A',
     shadowOpacity: 0.25,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },

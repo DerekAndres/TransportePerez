@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import {
   Avatar,
@@ -17,6 +17,12 @@ import { useAuth } from '@/context/AuthContext';
 import PantallaBase from '@/components/PantallaBase';
 import Tarjeta from '@/components/Tarjeta';
 import { actualizarMiPerfil, enviarRecuperacionPassword } from '@/services/authService';
+import {
+  EXPLICACION_PUSH,
+  enviarPruebaPush,
+  registrarTokenPush,
+  type EstadoPush,
+} from '@/services/notificacionesService';
 import { elegirFotoComprimida } from '@/utils/fotos';
 import { ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
 
@@ -34,7 +40,45 @@ export default function PantallaConfiguracion() {
   const [error, setError] = useState('');
   const [correoEnviado, setCorreoEnviado] = useState(false);
 
+  // --- Diagnóstico de notificaciones ---
+  // Se consulta al abrir la pantalla. `registrarTokenPush` es idempotente: si
+  // ya hay permiso y token, no molesta al usuario; si falta algo, devuelve
+  // exactamente qué falta.
+  const [estadoPush, setEstadoPush] = useState<EstadoPush | null>(null);
+  const [probando, setProbando] = useState(false);
+  const [resultadoPrueba, setResultadoPrueba] = useState<{ ok: boolean; mensaje: string } | null>(
+    null
+  );
+
+  const uid = usuario?.id;
+  useEffect(() => {
+    if (!uid) return;
+    let cancelado = false;
+    registrarTokenPush(uid)
+      .then((estado) => {
+        if (!cancelado) setEstadoPush(estado);
+      })
+      .catch(() => {
+        if (!cancelado) setEstadoPush('error');
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [uid]);
+
   if (!usuario) return null;
+
+  const probarNotificaciones = async () => {
+    setProbando(true);
+    setResultadoPrueba(null);
+    try {
+      setResultadoPrueba(await enviarPruebaPush(usuario.id));
+    } catch {
+      setResultadoPrueba({ ok: false, mensaje: 'No se pudo enviar la prueba.' });
+    } finally {
+      setProbando(false);
+    }
+  };
 
   const cambiarFoto = async () => {
     setError('');
@@ -113,7 +157,11 @@ export default function PantallaConfiguracion() {
               {usuario.email}
             </Text>
             <Text variant="bodySmall" style={estilosBase.tenue}>
-              {usuario.rol === 'conductor' ? 'Conductor' : 'Padre de familia'}
+              {usuario.rol === 'conductor'
+                ? 'Conductor'
+                : usuario.rol === 'admin'
+                  ? 'Administración'
+                  : 'Padre de familia'}
             </Text>
           </View>
         </View>
@@ -144,6 +192,64 @@ export default function PantallaConfiguracion() {
         >
           Guardar teléfono
         </Button>
+      </Tarjeta>
+
+      {/* Notificaciones: estado real + prueba.
+          Está a la vista del usuario a propósito. "No me llegan los avisos" es
+          el reclamo más difícil de diagnosticar a distancia; con esta tarjeta,
+          quien sea que tenga el teléfono en la mano puede decir en qué punto se
+          corta. */}
+      <Tarjeta>
+        <View style={styles.filaOpcion}>
+          <MaterialCommunityIcons
+            name={estadoPush === 'listo' ? 'bell-check' : 'bell-alert'}
+            size={22}
+            color={
+              estadoPush === 'listo'
+                ? tema.colors.secondary
+                : estadoPush === null
+                  ? tema.colors.onSurfaceVariant
+                  : tema.colors.error
+            }
+          />
+          <View style={styles.textoOpcion}>
+            <Text variant="titleSmall" style={styles.negrita}>
+              Notificaciones
+            </Text>
+            <Text variant="bodySmall" style={estilosBase.tenue}>
+              {estadoPush === null ? 'Comprobando…' : EXPLICACION_PUSH[estadoPush]}
+            </Text>
+          </View>
+        </View>
+
+        <Button
+          mode="contained-tonal"
+          icon="bell-ring"
+          onPress={probarNotificaciones}
+          loading={probando}
+          disabled={probando || estadoPush === null}
+        >
+          Enviar una notificación de prueba
+        </Button>
+
+        {!!resultadoPrueba && (
+          <View style={styles.filaOpcion}>
+            <MaterialCommunityIcons
+              name={resultadoPrueba.ok ? 'check-circle' : 'alert-circle'}
+              size={17}
+              color={resultadoPrueba.ok ? tema.colors.secondary : tema.colors.error}
+            />
+            <Text
+              variant="bodySmall"
+              style={[
+                styles.textoOpcion,
+                { color: resultadoPrueba.ok ? tema.colors.secondary : tema.colors.error },
+              ]}
+            >
+              {resultadoPrueba.mensaje}
+            </Text>
+          </View>
+        )}
       </Tarjeta>
 
       {/* Cuenta */}

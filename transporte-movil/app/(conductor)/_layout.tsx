@@ -4,7 +4,10 @@ import { ActivityIndicator } from 'react-native-paper';
 import { Redirect, Stack } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
-import { registrarTokenPush } from '@/services/notificacionesService';
+import {
+  registrarTokenPush,
+  reintentarAvisosPendientes,
+} from '@/services/notificacionesService';
 
 // Layout protegido: solo un conductor logueado puede ver las pantallas de este grupo.
 //
@@ -19,7 +22,12 @@ export default function ConductorLayout() {
   // Fase 6: al entrar, registrar el token push del conductor (le servirá para
   // recibir mensajes del chat en la Fase 7)
   useEffect(() => {
-    if (uid) registrarTokenPush(uid).catch(() => {});
+    if (!uid) return;
+    registrarTokenPush(uid).catch(() => {});
+    // Al abrir la app se reintentan los avisos que no salieron por falta de
+    // señal en la ruta (ver COLA DE AVISOS PENDIENTES en notificacionesService).
+    // Es el caso más común de los tres roles: el bus pierde cobertura seguido.
+    reintentarAvisosPendientes().catch(() => {});
   }, [uid]);
 
   if (cargando) {
@@ -43,7 +51,9 @@ export default function ConductorLayout() {
     return <Redirect href="/" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  // Misma transición deslizante que en el grupo del padre, para que la app se
+  // sienta igual en los dos roles
+  return <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }} />;
 }
 
 const styles = StyleSheet.create({

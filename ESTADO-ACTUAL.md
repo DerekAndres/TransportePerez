@@ -102,8 +102,66 @@ español. `models.ts` debe ser **idéntico** en web (`src/types/`) y móvil (`ty
   Envío: POST directo a `https://exp.host/--/api/v2/push/send` (sin backend). Tokens y
   niños se cachean en memoria por sesión. ⚠️ Para que funcione: (1) redesplegar reglas
   (ver §5), (2) `eas init` para tener `extra.eas.projectId` en app.json (sin él,
-  `registrarTokenPush` sale sin token, a propósito), (3) probar en APK/dev build —
-  **Expo Go en Android NO soporta push remotas desde SDK 53**.
+  `registrarTokenPush` sale sin token, a propósito) — **ya hecho**, (3) probar en
+  APK/dev build — **Expo Go en Android NO soporta push remotas desde SDK 53**.
+- **Identidad visual — logo real y portada animada (2026-08-19): construida, compila
+  limpio (tsc + eslint + build web + `expo export` de Android), NO vista en dispositivo.**
+  El set de iconos de `Logos/` (generado con IconKitchen: ilustracion de un bus escolar
+  con "Rutas Escolar / Seguridad") reemplaza a los del template de Expo en TODAS partes.
+  - **Movil:** `icon.png` (1024, aplanado sobre blanco porque la App Store rechaza alfa),
+    `android-icon-foreground.png` (1024, logo al 68% y centrado sobre transparente — la
+    "zona segura" del adaptive icon; a sangre, los recortes de Android se comerian el
+    texto), `android-icon-monochrome.png`, `splash-icon.png`, `favicon.png` y `logo.png`
+    (para usar DENTRO de la app). Se quito de `app.json` el `backgroundImage`: el que
+    traia el set es negro solido, asi que ahora manda `backgroundColor: "#FFFFFF"`.
+    Generados con un script de una sola vez usando `jimp-compact`, que ya venia instalado
+    como dependencia de `@expo/image-utils` — **no se agrego ninguna libreria**.
+  - **Portada animada:** `components/PortadaAnimada.tsx`, la pantalla que se ve mientras
+    se resuelve la sesion (antes: una rueda de carga gris). Logo + un bus que avanza. El
+    bus casi no se mueve: lo que corre es la CARRETERA debajo (fila de rayas que se
+    desplaza un `PASO` y reinicia — como todas son iguales, el ciclo es invisible y el
+    movimiento nunca se corta). Usa `Animated` de React Native (incluido, sin libreria
+    nueva) con `useNativeDriver: true`, para que siga fluido mientras JS espera a
+    Firebase. Las animaciones se detienen al desmontar. Montada en `app/index.tsx`.
+  - **Login movil:** el `Avatar.Icon` generico de bus paso a ser el logo real.
+  - **Web:** `public/` recibe favicon.ico, apple-touch-icon y los cuatro iconos PWA
+    (192/512, normales y maskable) + `logo.png`. Nuevo `public/manifest.webmanifest` y
+    `index.html` reescrito (iconos, `theme-color`, titulo y descripcion reales — antes
+    decia "transporte-web" y apuntaba a `/vite.svg`). El logo tambien aparece en
+    `LoginScreen` y en el encabezado de `AppLayout`.
+  - **Pagina de descarga** (`public/descargar.html`): el emoji 🚌 paso a ser el logo real.
+
+- **Fase 6-bis — entrega con la app CERRADA (2026-08-19): construida, compila limpio
+  (tsc + eslint móvil y web + build web), NO probada en dispositivo.** Cierra los huecos
+  que quedaban para que "el aviso llega aunque la app esté cerrada" valga para TODO
+  (asistencia, proximidad, mensajes y comunicados). Ver `docs/notificaciones.md`.
+  - **Avisos de canal ahora mandan push** (antes solo se escribían en Firestore y el
+    padre se enteraba únicamente si abría la app — inútil para un "mañana no hay clases").
+    `notificarAvisoNuevo()` deriva los destinatarios de los niños activos de la escuela
+    del canal (sin lista de suscriptores) y envía **en lote**: un POST con hasta 100
+    mensajes vía `enviarPushMultiple()`, no uno por padre.
+  - **La cola de reintentos estaba muerta:** `reintentarAvisosPendientes()` existía pero
+    **nadie la llamaba**, así que un aviso perdido por falta de señal no se reintentaba
+    nunca. Ahora la llaman los layouts de los tres roles al abrir la app y `hoy.tsx` tras
+    cada marcado de asistencia (ahí se sabe que hay señal). Se le agregó guarda contra
+    ejecución simultánea (evita avisos duplicados) y tope de 300 pendientes.
+  - **El panel web ya puede enviar push.** Antes no podía: Expo no devuelve
+    `Access-Control-Allow-Origin` y el navegador cancelaba el POST por CORS, así que un
+    mensaje o aviso escrito desde la web no llegaba a ningún teléfono. Se resuelve con
+    `Content-Type: text/plain` (tipo safelisted de CORS ⇒ sin preflight; la API de Expo
+    igual parsea el cuerpo como JSON — comprobado contra el servidor real) +
+    `mode: "no-cors"`. Precio asumido: la respuesta es opaca, se envía a ciegas (el dato
+    ya está en Firestore de todos modos; la limpieza de tokens muertos la sigue haciendo
+    el móvil). Nuevo `transporte-web/src/services/notificacionesService.ts`, cableado en
+    `MensajesScreen` y `CanalesScreen`.
+  - **Tocar el aviso abre la pantalla correcta**, incluso si la app venía cerrada y se
+    abrió por el toque: cada push lleva un `data` (`DatosPush`: mensaje / aviso / hijos) y
+    `hooks/use-navegacion-notificacion.ts` lo lee con `useLastNotificationResponse`
+    (el hook que Expo recomienda porque cubre el caso de app terminada, que un listener
+    normal se perdería). Salta con 400 ms de retraso para no chocar con el redirect por
+    rol de `index.tsx`. Montado en `app/_layout.tsx`.
+  - `notificarMensajeNuevo()` cambió de firma: ahora recibe también el `remitenteId`
+    (hace falta para saber qué conversación abrir al tocar el aviso).
 - **Fase 7 — chat padre ↔ conductor / administración (2026-07-30): construida, compila
   limpio (tsc + eslint + build web), NO probada con dos sesiones.**
   Colección `mensajes` (ya en el modelo). `conversacionId` = los dos uids ordenados y
@@ -123,15 +181,153 @@ español. `models.ts` debe ser **idéntico** en web (`src/types/`) y móvil (`ty
     `app/(padre)/mensajes.tsx` y `app/(conductor)/mensajes.tsx` con `components/FilaContacto.tsx`.
     Botón "Mensajes" con badge de no leídos (`components/BotonMensajes.tsx`) en Mis hijos y
     en Mi ruta de hoy. Al enviar, push al destinatario vía `notificarMensajeNuevo` (reusa
-    la infra de Fase 6; el admin no tiene token porque usa la web, así que un mensaje AL
-    admin no dispara push — lo ve al abrir el panel).
+    la infra de Fase 6). Desde que existe la sección de admin en la app móvil, el admin
+    también registra token al entrar, así que un mensaje AL admin sí le llega al teléfono.
   - **Web (admin):** `screens/MensajesScreen.tsx` (dos paneles: conversaciones a la
     izquierda con badge de no leídos + selector para iniciar con cualquier conductor/padre;
-    chat en vivo a la derecha). Ruta `/mensajes` + enlace en el sidebar. La web **no**
-    manda push (evita el problema de CORS del endpoint de Expo desde el navegador); el
-    padre/conductor lo ve por onSnapshot al abrir la app.
+    chat en vivo a la derecha). Ruta `/mensajes` + enlace en el sidebar. La web **sí**
+    manda push desde 2026-08-19 (el problema de CORS del endpoint de Expo se resuelve con
+    `text/plain` + `no-cors` — ver Fase 6-bis arriba).
   - ⚠️ Para que funcione: **desplegar reglas** (§5). Falta prueba con dos sesiones
     (padre ↔ conductor ↔ admin) y, para el push de mensajes, APK/dev build.
+
+## 3-bis. Rediseño visual de la app móvil (2026-08-19) — compila limpio, NO probado en dispositivo
+
+Cuatro cosas pedidas por Derek: los avisos tienen que **verse** en el inicio del
+padre, la app tiene que sentirse suave, el chat no puede quedar tapado por el
+teclado, y todo tiene que adaptarse a cualquier teléfono.
+
+- **Avisos visibles (padre).** `services/canalesService.escucharAvisosDeCanales()`
+  (un listener por canal, combinados en memoria; solo igualdades, sin índices)
+  alimenta la nueva sección de **Avisos del inicio**, que ahora muestra el TEXTO
+  de los dos comunicados más recientes con el canal y el "hace cuánto", no un
+  botón. La pantalla `/canales` pasó de listar canales a listar **avisos**, con
+  pastillas para filtrar por escuela si hay más de una. Componente nuevo
+  `components/TarjetaAviso.tsx` (compartido inicio / canal), `utils/tiempo.ts`
+  (`horaCorta`, `haceCuanto`, `esReciente`).
+- **Teclado del chat.** Se quitó `KeyboardAvoidingView` (no funciona con
+  `edgeToEdgeEnabled` en Android: la ventana no se redimensiona) y se reemplazó
+  por `hooks/use-teclado.ts` → `useAlturaTeclado()`, que compensa
+  `alto del teclado − lo que la ventana ya se achicó`. Sirve igual en iOS,
+  Android edge-to-edge y Android con resize. Se usa en `conversacion.tsx`, en
+  `PantallaBase` (todos los formularios), `login.tsx` y `completar-perfil.tsx`.
+- **Adaptación al teléfono.** `PantallaBase` agrega `respiroInferior(insets.bottom)`
+  al final del scroll, así la última tarjeta nunca queda debajo de los tres
+  botones de Android ni de la barra de gestos; lo mismo en `mapa.tsx`,
+  `recorrido.tsx`, `login.tsx` y `completar-perfil.tsx` (que además dejaron de
+  usar `paddingTop` fijo y leen `insets.top`).
+- **Estilo.** Tokens más redondos y sombras más difusas (`constants/estilos.ts`:
+  radio de tarjeta 26, `SOMBRA_FLOTANTE` nueva); componentes nuevos
+  `BotonPrincipal` (acción grande, con háptico — iniciar/finalizar viaje),
+  `ChipFiltro` (cambiar de ruta / filtrar canales) y `AparicionSuave`
+  (entrada en cascada con Reanimated, solo en el inicio del padre);
+  `GrupoAsistencia` migrado de `Card` de Paper a la `Tarjeta` del proyecto, con
+  contador "2 de 4" y botones más grandes; transición `slide_from_right` en los
+  tres layouts; velo con el destino sobre el mapa del inicio; hora del último
+  mensaje en las dos bandejas.
+
+Sin cambios de modelo, de servicios de datos ni de reglas. Verificado: `tsc`,
+`eslint` y `expo export` (bundle Android) limpios.
+
+### 3-ter. Identidad "Tropical Heat" y los dos inicios nuevos (2026-08-19)
+
+Derek eligió, sobre maquetas navegables en el teléfono, el inicio del padre
+("el viaje como protagonista") y el del conductor ("progreso arriba, acción fija
+abajo"), y pidió una paleta tropical. La pantalla de maquetas
+(`app/maquetas.tsx`) ya cumplió su función y **se borró**.
+
+- **Paleta (`constants/tema.ts`): BLANCO con los colores DEL LOGO.**
+  ⚠️ **Reemplazada el 2026-08-19.** Antes eran acentos "tropicales" elegidos a
+  mano (coral `#C93F1C` / aqua `#00786F` / mango `#9A5A00`); ahora los tres
+  salen **del logo de la empresa**, medidos con un histograma de color sobre
+  `Logos/ios/AppIcon~ios-marketing.png` — el azul del cielo ocupa el **19.6%**
+  de la imagen, así que es el color de la marca. El motivo del cambio: el ícono
+  que el padre ve en su teléfono y la app que abre tenían que ser la misma cosa.
+  El color principal de la app sigue siendo el blanco (fondos, tarjetas, barras)
+  y encima entran tres acentos, cada uno con un trabajo asignado — eso es lo que
+  hay que poder defender: **azul cielo `#12659E`** = lo que está pasando ahora
+  (bus en viaje, niño arriba, acción principal); **verde campo `#1B7A5A`** = lo
+  que ya se cumplió (entregado, parada completa, viaje terminado); **ámbar bus
+  `#8A5B00`** = avisos. Azul "en curso" → verde "terminado" es además la
+  convención que casi todo el mundo ya conoce.
+  ⚠️ **Límite conocido y documentado en el archivo:** el azul y el verde tienen
+  casi la misma **luminancia** (contraste entre ellos 1.12:1), o sea que se
+  distinguen por el tono pero no por lo claro/oscuro. Por eso el color nunca va
+  solo donde el estado importa: siempre lo acompaña un ícono o una palabra. Los
+  cuatro colores sí pasan **AA (4.5:1) contra blanco** — verificado: azul 6.21,
+  verde 5.28, ámbar 5.87, rojo de error 8.16.
+  La regla sigue siendo que el color aparece solo donde significa algo: sin
+  viaje en curso la pantalla es casi toda blanca, y cuando el bus sale el azul
+  se nota. Como el fondo y las tarjetas son blancos, el contorno lo dibuja un
+  **borde de un pelo** (`bordeTarjeta()` en `constants/estilos.ts`). Los grises
+  pasaron de cálidos a **fríos** (sobre una marca azul, un gris cálido se ve
+  sucio) y el modo oscuro de `#141211` a `#101619`. Se conserva la escala
+  tipográfica propia (`configureFonts`, sin fuentes externas) y
+  `FRANJA_TROPICAL`, la franja de tres colores del encabezado, el login y
+  "completar perfil", ahora en la versión VIVA del logo
+  (`#2E90CE` / `#F0C24E` / `#2F9E76`) porque es decorativa y no sostiene texto.
+  Los mapas Leaflet (WebView) llevan los mismos colores **a mano**, porque el
+  WebView es HTML aparte y no ve el tema de Paper: bus azul con halo que late,
+  parada verde, escuelas ámbar (`recorrido.tsx`, `MapaBusEnVivo.tsx`,
+  `SelectorUbicacion.tsx`).
+  **El panel web también:** antes usaba el azul por defecto de Mantine; ahora
+  `transporte-web/src/theme.ts` define la escala de la marca con el índice 6 =
+  `#12659E`, el mismo azul que el móvil. Igual el `theme-color` del
+  `index.html`, el `theme_color` del manifest, la paleta de `descargar.html` y
+  el color del ícono de notificación en `app.json`.
+- **Inicio del padre (`(padre)/hijos.tsx`).** El hijo con el bus andando se lleva
+  la pantalla: mapa en vivo de 280 px con la señal flotando arriba y, sobre un
+  velo tostado, su nombre, hacia dónde va y a qué hora subió. Debajo, pie de
+  acciones (Mapa · Perfil · Historial). Los hijos sin viaje quedan en tarjetas
+  compactas con su `LineaViaje`. Después: avisos con texto, cuatro accesos en
+  grilla (Mensajes con insignia de no leídos, Solicitudes, Inscribir, Cambio) y
+  los viajes pasados. Saludo según la hora del día.
+- **Inicio del conductor (`(conductor)/hoy.tsx`).** Tres partes fijas:
+  cabecera con la ruta y una **barra de progreso de dos tramos** (aqua =
+  entregados, coral = en el bus) más el estado del GPS; lista de asistencia
+  que se desplaza en el medio; y el **botón principal clavado abajo**
+  (Iniciar / Finalizar), por encima de la barra de navegación del teléfono. Sin
+  viaje iniciado se ve la lista de a quiénes va a recoger, en gris.
+- Cambios de `app.json`: fondo del ícono adaptativo y del splash en arena. Solo
+  se ven al recompilar el APK, no en Expo Go.
+
+Verificado igual: `tsc`, `eslint` y `expo export` limpios. **Falta verlo en el
+teléfono.**
+
+### 3-quater. App móvil del ADMIN (2026-08-19) — construida, NO probada en dispositivo
+
+Grupo nuevo `app/(admin)/` con layout protegido por rol. **Alcance deliberado:
+solo vigilancia y comunicación.** Crear usuarios, buses, escuelas, niños y rutas
+sigue siendo exclusivo del panel web (pantalla grande, teclado, mapas para armar
+recorridos); la app le da al admin lo que necesita estando en la calle.
+
+- **Monitoreo** (`(admin)/monitoreo.tsx`, es su pantalla de inicio): tres
+  contadores (en curso · terminadas · sin salir) y una fila por ruta activa con
+  turno, unidad, cantidad de niños, estado, hora de salida y de fin, asistencia
+  (subieron / entregados) y si el bus **está mandando ubicación**. Desde cada
+  fila se abre el chat con ese conductor o se lo llama. Todo en vivo con dos
+  suscripciones (`viajes` de hoy por igualdad de `fecha`, y la colección
+  `ubicaciones` entera, que tiene un doc por viaje activo).
+- **Mensajes** (`(admin)/mensajes.tsx`): conversaciones existentes ordenadas por
+  la más reciente con badge de no leídos, más un buscador para escribirle a
+  cualquier padre o conductor. Reusa `app/conversacion.tsx` (el chat es el mismo
+  para los tres roles).
+- **Publicar aviso** (`(admin)/avisos.tsx`): elegir canal (pastillas si hay más
+  de uno), escribir y publicar; debajo, lo ya publicado en ese canal, en vivo.
+  Los canales se siguen creando y editando en la web.
+- `services/adminService.ts` (solo lectura: catálogo de rutas/buses/conductores,
+  viajes de hoy, señal de GPS, conteo de asistencia y `armarEstadoDeRutas()`,
+  función pura que cruza todo) y dos funciones nuevas en `canalesService.ts`
+  (`listarCanales`, `publicarAviso`).
+- `app/index.tsx` ya no manda al admin a "usá la web": lo redirige a
+  `/monitoreo`. El menú lateral tiene sus cuatro destinos.
+- **Sin cambios de reglas**: las actuales ya permiten todo esto (`viajes`,
+  `ubicaciones`, `rutas`, `buses` y `usuarios` son legibles por cualquier
+  autenticado; `avisos` create exige `esAdmin() && de == request.auth.uid`, que
+  es justo lo que hace `publicarAviso`).
+- Efecto lateral: el admin ahora **registra token push** al entrar, así que los
+  mensajes de padres y conductores le llegan al teléfono (antes no, porque solo
+  usaba la web). Se actualizó la nota en `notificacionesService.ts`.
 
 ## 4. Modelo de datos (colecciones y tipos clave)
 
@@ -238,9 +434,16 @@ recibe en el punto y lo lleva a su escuela. (Juan y María son hermanos, misma c
    verificó que compila, NO en dispositivo. Revisar semántica de "Continuar sin transbordo".
 2. **Padre con transbordo:** que el padre vea los DOS tramos del viaje de su hijo
    (hoy `padreService.listarRutasDeNino` devuelve 2 rutas; hay un TODO comentado ahí).
-3. **Probar la Fase 6 en dispositivo** (construida 2026-07-30). Antes: deploy de reglas
-   (§5) y `eas init`. En APK o development build (Expo Go Android no recibe push):
-   token guardado al entrar, avisos subió/bajó, proximidad a 400 m, transbordo neutro.
+3. **Hacer funcionar las notificaciones** — el código está completo; faltan tres
+   pasos de configuración que solo puede hacer Derek (piden login en Expo y una
+   clave de Firebase): `eas init`, subir las credenciales de FCM V1 a EAS y
+   compilar el APK. Guía paso a paso en **[`docs/notificaciones.md`](docs/notificaciones.md)**.
+   Para verificar sin adivinar, la app trae ahora **Configuración →
+   Notificaciones**: muestra el estado real (`sin_projectid`, `sin_permiso`,
+   `sin_soporte`, `listo`) y un botón de **notificación de prueba** que traduce
+   el error que devuelve Expo (`InvalidCredentials` = faltan las credenciales de
+   FCM; `DeviceNotRegistered` = token viejo). Recién con eso en verde tiene
+   sentido probar el circuito real (subió/bajó, proximidad a 400 m, transbordo).
 4. **Probar la Fase 7 (chat)** con dos sesiones (construida 2026-07-30): padre ↔
    conductor ↔ admin, badges de no leídos, botón de llamada, y push de mensaje (requiere
    APK/dev build + deploy de reglas). Ver §3.
@@ -257,9 +460,17 @@ recibe en el punto y lo lleva a su escuela. (Juan y María son hermanos, misma c
    `eas.json` y `app.json` (package + googleServicesFile) ya configurados; (d) cargar
    datos reales por los CRUDs. Reglas finales documentadas en `firestore.rules`. Casos de
    prueba del informe en `docs/casos-de-prueba.md`.
-7. **Limpieza técnica:** quitar campos legacy (`horarioAM/PM`, `centroEducativo`,
+7. **Probar el rediseño móvil en el teléfono** (2026-08-19, ver §3-bis y §3-ter):
+   que el aviso publicado desde el panel aparezca solo en el inicio del padre;
+   escribir en el chat con el teclado abierto (que no tape el campo ni el botón
+   de enviar); revisar en un Android **con los tres botones de abajo** que
+   ninguna pantalla quede cortada al final; y, con un viaje en curso, ver el
+   mapa grande del inicio del padre y la barra de progreso del conductor con el
+   botón de finalizar fijo abajo. La paleta tropical conviene mirarla también en
+   **modo oscuro** (la app sigue el modo del teléfono).
+8. **Limpieza técnica:** quitar campos legacy (`horarioAM/PM`, `centroEducativo`,
    `Nino.rutaId/paradaId`, `Viaje.tipo`, y `ninoIds` cuando móvil+padre usen `ninos`).
-8. **Actualizar `CLAUDE.md` §5** (estado actual) — está desactualizada.
+9. **Actualizar `CLAUDE.md` §5** (estado actual) — está desactualizada.
 
 ## 10. Archivos clave
 

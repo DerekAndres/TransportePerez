@@ -1,25 +1,40 @@
-import { useEffect, useState } from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { View } from 'react-native';
 import { ActivityIndicator, Text, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
 import PantallaBase from '@/components/PantallaBase';
 import Tarjeta from '@/components/Tarjeta';
-import { listarCanalesDeEscuelas } from '@/services/canalesService';
+import TarjetaAviso from '@/components/TarjetaAviso';
+import ChipFiltro from '@/components/ChipFiltro';
+import { escucharAvisosDeCanales, listarCanalesDeEscuelas } from '@/services/canalesService';
 import { listarHijos } from '@/services/padreService';
-import { ALTURA, ESPACIO, estilosBase } from '@/constants/estilos';
-import type { Canal } from '@/types/models';
+import { estilosBase } from '@/constants/estilos';
+import type { Aviso, Canal } from '@/types/models';
 
-// Canales informativos del padre: uno por cada escuela donde tiene un hijo.
-// No se inscribe a nada — la lista se arma sola con las escuelas de sus hijos.
+// ============================================
+// AVISOS (pantalla completa)
+// ============================================
+// Los comunicados de la administración para las escuelas de los hijos, del más
+// nuevo al más viejo. El padre NO se inscribe a nada: recibe el canal de la
+// escuela de cada hijo, y si un hijo cambia de escuela entra y sale del canal
+// solo.
+//
+// Se muestran los AVISOS, no los canales: entrar a "Avisos" y encontrar una
+// lista de canales que hay que abrir uno por uno agrega un paso para nada.
+// Cuando hay más de una escuela, las pastillas de arriba filtran por canal.
+
+// Valor del filtro cuando no se filtra por ningún canal en particular
+const TODOS = 'todos';
+
 export default function CanalesScreen() {
   const { usuario } = useAuth();
-  const router = useRouter();
   const tema = useTheme();
 
   const [canales, setCanales] = useState<Canal[] | null>(null);
+  const [avisos, setAvisos] = useState<Aviso[]>([]);
+  const [filtro, setFiltro] = useState<string>(TODOS);
 
   useEffect(() => {
     if (!usuario) return;
@@ -42,6 +57,24 @@ export default function CanalesScreen() {
     };
   }, [usuario]);
 
+  // Avisos de todos sus canales, en vivo
+  const clavesCanales = (canales ?? []).map((c) => c.id).join(',');
+  useEffect(() => {
+    const ids = clavesCanales ? clavesCanales.split(',') : [];
+    if (ids.length === 0) {
+      setAvisos([]);
+      return;
+    }
+    return escucharAvisosDeCanales(ids, setAvisos);
+  }, [clavesCanales]);
+
+  const nombrePorCanal = useMemo(
+    () => new Map((canales ?? []).map((c) => [c.id, c.nombre])),
+    [canales]
+  );
+
+  const visibles = filtro === TODOS ? avisos : avisos.filter((a) => a.canalId === filtro);
+
   if (canales === null) {
     return (
       <PantallaBase titulo="Avisos" scroll={false}>
@@ -53,70 +86,39 @@ export default function CanalesScreen() {
   }
 
   return (
-    <PantallaBase titulo="Avisos">
-      <Text variant="bodyMedium" style={estilosBase.tenue}>
-        Comunicados de la administración para las escuelas de tus hijos.
-      </Text>
-
-      {canales.length === 0 && (
-        <Tarjeta>
-          <Text style={estilosBase.tenue}>
-            Todavía no hay canales de avisos para la escuela de tus hijos.
-          </Text>
-        </Tarjeta>
+    <PantallaBase titulo="Avisos" subtitulo="Comunicados de la administración">
+      {/* Con dos o más escuelas, se puede mirar una sola */}
+      {canales.length > 1 && (
+        <ChipFiltro
+          opciones={[
+            { id: TODOS, etiqueta: 'Todos' },
+            ...canales.map((c) => ({ id: c.id, etiqueta: c.nombre })),
+          ]}
+          seleccionadaId={filtro}
+          onSeleccionar={setFiltro}
+        />
       )}
 
-      {canales.map((c) => (
-        <Tarjeta
-          key={c.id}
-          sinRelleno
-          onPress={() =>
-            router.push({ pathname: '/canal', params: { canalId: c.id, canalNombre: c.nombre } })
-          }
-        >
-          {/* Portada del canal (normalmente el logo de la escuela) */}
-          {!!c.foto && <Image source={{ uri: c.foto }} style={styles.portada} />}
-          <View style={styles.cuerpo}>
-            {!c.foto && (
-              <View style={[styles.circulo, { backgroundColor: tema.colors.tertiaryContainer }]}>
-                <MaterialCommunityIcons
-                  name="bullhorn"
-                  size={22}
-                  color={tema.colors.onTertiaryContainer}
-                />
-              </View>
-            )}
-            <View style={styles.datos}>
-              <Text variant="titleMedium" style={styles.negrita}>
-                {c.nombre}
-              </Text>
-              {!!c.descripcion && (
-                <Text variant="bodySmall" style={estilosBase.tenue}>
-                  {c.descripcion}
-                </Text>
-              )}
-            </View>
+      {visibles.length === 0 && (
+        <Tarjeta>
+          <View style={estilosBase.filaEntre}>
+            <Text style={[estilosBase.tenue, { flex: 1 }]}>
+              {canales.length === 0
+                ? 'Todavía no hay canales de avisos para la escuela de tus hijos.'
+                : 'Todavía no hay avisos publicados.'}
+            </Text>
             <MaterialCommunityIcons
-              name="chevron-right"
+              name="bullhorn-outline"
               size={22}
               color={tema.colors.onSurfaceVariant}
             />
           </View>
         </Tarjeta>
+      )}
+
+      {visibles.map((a) => (
+        <TarjetaAviso key={a.id} aviso={a} canalNombre={nombrePorCanal.get(a.canalId)} />
       ))}
     </PantallaBase>
   );
 }
-
-const styles = StyleSheet.create({
-  portada: { width: '100%', height: ALTURA.portada },
-  cuerpo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: ESPACIO.interno,
-    padding: ESPACIO.pantalla,
-  },
-  circulo: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  datos: { flex: 1, gap: 2 },
-  negrita: { fontWeight: '700' },
-});

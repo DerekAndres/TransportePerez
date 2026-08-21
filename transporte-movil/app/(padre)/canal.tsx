@@ -1,24 +1,15 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { ActivityIndicator, Text, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import PantallaBase from '@/components/PantallaBase';
 import Tarjeta from '@/components/Tarjeta';
+import TarjetaAviso from '@/components/TarjetaAviso';
 import { escucharAvisos } from '@/services/canalesService';
-import { ESPACIO, estilosBase } from '@/constants/estilos';
+import { estilosBase } from '@/constants/estilos';
 import type { Aviso } from '@/types/models';
-
-// Fecha y hora legible de un aviso
-function cuando(a: Aviso): string {
-  return a.hora.toDate().toLocaleString('es-HN', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 // Avisos de un canal. Es solo lectura a propósito: el canal es informativo, no
 // un chat. Si el padre necesita responder, tiene la sección Mensajes.
@@ -55,32 +46,21 @@ export default function CanalScreen() {
     >
       {avisos.length === 0 && (
         <Tarjeta>
-          <Text style={estilosBase.tenue}>Todavía no hay avisos en este canal.</Text>
+          <View style={estilosBase.filaEntre}>
+            <Text style={estilosBase.tenue}>Todavía no hay avisos en este canal.</Text>
+            <MaterialCommunityIcons
+              name="bullhorn-outline"
+              size={20}
+              color={tema.colors.onSurfaceVariant}
+            />
+          </View>
         </Tarjeta>
       )}
 
+      {/* Misma tarjeta que en el inicio, pero con el texto completo */}
       {avisos.map((a) => (
-        <Tarjeta key={a.id}>
-          <View style={styles.encabezado}>
-            <View style={[styles.circulo, { backgroundColor: tema.colors.tertiaryContainer }]}>
-              <MaterialCommunityIcons
-                name="bullhorn"
-                size={17}
-                color={tema.colors.onTertiaryContainer}
-              />
-            </View>
-            <Text variant="bodySmall" style={estilosBase.tenue}>
-              {cuando(a)}
-            </Text>
-          </View>
-          <Text variant="bodyLarge">{a.texto}</Text>
-        </Tarjeta>
+        <TarjetaAviso key={a.id} aviso={a} canalNombre={params.canalNombre} />
       ))}
     </PantallaBase>
   );
 }
-
-const styles = StyleSheet.create({
-  encabezado: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.minimo + 2 },
-  circulo: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-});

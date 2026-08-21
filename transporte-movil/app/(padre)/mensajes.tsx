@@ -10,6 +10,7 @@ import Tarjeta from '@/components/Tarjeta';
 import { listarContactosPadre } from '@/services/padreService';
 import { escucharBandeja, type ResumenConversacion } from '@/services/mensajesService';
 import { ESPACIO, estilosBase } from '@/constants/estilos';
+import { haceCuanto } from '@/utils/tiempo';
 
 // Bandeja de mensajes del padre: puede escribirle a la administración y al/los
 // conductor(es) de las rutas de sus hijos. Cada fila muestra el último mensaje y
@@ -123,15 +124,24 @@ export default function MensajesPadreScreen() {
                   {resumen?.ultimoTexto ?? c.rol}
                 </Text>
               </View>
-              {resumen && resumen.noLeidos > 0 ? (
-                <Badge style={{ backgroundColor: tema.colors.error }}>{resumen.noLeidos}</Badge>
-              ) : (
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={22}
-                  color={tema.colors.onSurfaceVariant}
-                />
-              )}
+              {/* Cuándo fue lo último y cuánto falta por leer, como en cualquier
+                  app de mensajería: se entiende sin explicación */}
+              <View style={styles.derecha}>
+                {!!resumen && (
+                  <Text variant="labelSmall" style={estilosBase.tenue}>
+                    {haceCuanto(resumen.ultimaHora)}
+                  </Text>
+                )}
+                {resumen && resumen.noLeidos > 0 ? (
+                  <Badge style={{ backgroundColor: tema.colors.error }}>{resumen.noLeidos}</Badge>
+                ) : (
+                  <MaterialCommunityIcons
+                    name="chevron-right"
+                    size={22}
+                    color={tema.colors.onSurfaceVariant}
+                  />
+                )}
+              </View>
             </View>
           </Tarjeta>
         );
@@ -143,5 +153,6 @@ export default function MensajesPadreScreen() {
 const styles = StyleSheet.create({
   fila: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno },
   datos: { flex: 1, gap: 2 },
+  derecha: { alignItems: 'flex-end', gap: 4 },
   negrita: { fontWeight: '700' },
 });

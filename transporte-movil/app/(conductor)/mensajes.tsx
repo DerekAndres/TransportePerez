@@ -10,6 +10,7 @@ import Tarjeta from '@/components/Tarjeta';
 import { listarContactosConductor } from '@/services/conductorService';
 import { escucharBandeja, type ResumenConversacion } from '@/services/mensajesService';
 import { ESPACIO, estilosBase } from '@/constants/estilos';
+import { haceCuanto } from '@/utils/tiempo';
 
 // Bandeja de mensajes del conductor: puede escribirle a la administración y a los
 // padres de los niños de sus rutas. Cada fila muestra el último mensaje y un
@@ -121,15 +122,23 @@ export default function MensajesConductorScreen() {
                   {resumen?.ultimoTexto ?? c.rol}
                 </Text>
               </View>
-              {resumen && resumen.noLeidos > 0 ? (
-                <Badge style={{ backgroundColor: tema.colors.error }}>{resumen.noLeidos}</Badge>
-              ) : (
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={22}
-                  color={tema.colors.onSurfaceVariant}
-                />
-              )}
+              {/* Cuándo fue lo último y cuánto falta por leer */}
+              <View style={styles.derecha}>
+                {!!resumen && (
+                  <Text variant="labelSmall" style={estilosBase.tenue}>
+                    {haceCuanto(resumen.ultimaHora)}
+                  </Text>
+                )}
+                {resumen && resumen.noLeidos > 0 ? (
+                  <Badge style={{ backgroundColor: tema.colors.error }}>{resumen.noLeidos}</Badge>
+                ) : (
+                  <MaterialCommunityIcons
+                    name="chevron-right"
+                    size={22}
+                    color={tema.colors.onSurfaceVariant}
+                  />
+                )}
+              </View>
             </View>
           </Tarjeta>
         );
@@ -141,5 +150,6 @@ export default function MensajesConductorScreen() {
 const styles = StyleSheet.create({
   fila: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno },
   datos: { flex: 1, gap: 2 },
+  derecha: { alignItems: 'flex-end', gap: 4 },
   negrita: { fontWeight: '700' },
 });

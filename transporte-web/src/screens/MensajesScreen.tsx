@@ -19,6 +19,7 @@ import {
 import { IconSearch, IconSend } from "@tabler/icons-react";
 import { useAuth } from "../context/AuthContext";
 import { listarUsuarios } from "../services/usuariosService";
+import { notificarMensajeNuevo } from "../services/notificacionesService";
 import {
   escucharBandeja,
   escucharConversacion,
@@ -131,6 +132,11 @@ export default function MensajesScreen() {
     setTexto("");
     try {
       await enviarMensaje(miId, seleccion, limpio);
+      // Push al destinatario, por si tiene la app cerrada. Va sin await: el
+      // mensaje ya se guardó y un fallo del aviso no debe deshacer el envío.
+      if (usuario) {
+        notificarMensajeNuevo(seleccion, miId, usuario.nombre, limpio).catch(() => {});
+      }
     } catch {
       setTexto(limpio); // se devuelve el texto si falló, para reintentar
     } finally {

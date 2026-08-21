@@ -54,7 +54,15 @@ export default function LoginScreen() {
         w={360}
       >
         <Stack gap="sm">
-          <div>
+          <div style={{ textAlign: "center" }}>
+            {/* Logo de la empresa (vive en public/, se sirve tal cual) */}
+            <img
+              src="/logo.png"
+              alt="Inversiones Perez, transporte escolar"
+              width={96}
+              height={96}
+              style={{ borderRadius: 20, marginBottom: 8 }}
+            />
             <Title order={2}>Transporte Perez</Title>
             <Text c="dimmed" size="sm">
               Panel de administración

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { TouchableRipple, useTheme } from 'react-native-paper';
 
-import { RADIO, estilosBase, fondoTarjeta } from '@/constants/estilos';
+import { RADIO, bordeTarjeta, estilosBase, fondoTarjeta } from '@/constants/estilos';
 
 // La tarjeta blanca sobre la que se apoya todo el contenido de la app.
 // Reemplaza al <Card> de React Native Paper para tener control del radio, del
@@ -25,7 +25,9 @@ export default function Tarjeta({ children, onPress, style, sinRelleno }: Props)
 
   const estilo = [
     estilosBase.tarjeta,
-    { backgroundColor: fondoTarjeta(tema) },
+    // Blanca, con el contorno de un pelo que la separa del fondo (también
+    // blanco) y la sombra suave de los tokens
+    { backgroundColor: fondoTarjeta(tema), borderWidth: 1, borderColor: bordeTarjeta(tema) },
     sinRelleno && styles.sinRelleno,
     style,
   ];

@@ -46,6 +46,16 @@ const DESTINOS_CONDUCTOR: Destino[] = [
   { etiqueta: 'Configuración', icono: 'cog', ruta: '/configuracion' },
 ];
 
+// El admin en el teléfono solo vigila y comunica: ver cómo van las rutas,
+// contestar mensajes y publicar avisos. Administrar (crear usuarios, buses,
+// escuelas, niños, rutas) sigue siendo del panel web.
+const DESTINOS_ADMIN: Destino[] = [
+  { etiqueta: 'Monitoreo', icono: 'monitor-dashboard', ruta: '/monitoreo' },
+  { etiqueta: 'Mensajes', icono: 'message-text', ruta: '/mensajes' },
+  { etiqueta: 'Publicar aviso', icono: 'bullhorn', ruta: '/avisos' },
+  { etiqueta: 'Configuración', icono: 'cog', ruta: '/configuracion' },
+];
+
 export default function MenuLateral({
   visible,
   onCerrar,
@@ -82,7 +92,12 @@ export default function MenuLateral({
     ]).start();
   }, [visible, ancho, desplazamiento, opacidadFondo]);
 
-  const destinos = usuario?.rol === 'conductor' ? DESTINOS_CONDUCTOR : DESTINOS_PADRE;
+  const destinos =
+    usuario?.rol === 'conductor'
+      ? DESTINOS_CONDUCTOR
+      : usuario?.rol === 'admin'
+        ? DESTINOS_ADMIN
+        : DESTINOS_PADRE;
 
   const ir = (ruta: Href) => {
     onCerrar();
@@ -128,7 +143,11 @@ export default function MenuLateral({
                 {usuario?.nombre ?? ''}
               </Text>
               <Text variant="bodySmall" style={styles.tenue}>
-                {usuario?.rol === 'conductor' ? 'Conductor' : 'Padre de familia'}
+                {usuario?.rol === 'conductor'
+                  ? 'Conductor'
+                  : usuario?.rol === 'admin'
+                    ? 'Administración'
+                    : 'Padre de familia'}
               </Text>
             </View>
           </View>
