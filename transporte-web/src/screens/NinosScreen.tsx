@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Avatar,
@@ -6,7 +6,6 @@ import {
   Divider,
   FileInput,
   Group,
-  Loader,
   Modal,
   Select,
   Stack,
@@ -32,7 +31,16 @@ import {
 } from "../services/ninosService";
 import { listarUsuarios } from "../services/usuariosService";
 import { listarEscuelas } from "../services/escuelasService";
+import FiltrosCatalogo, { PiePaginacion } from "../components/FiltrosCatalogo";
+import { usePaginacion } from "../hooks/use-paginacion";
+import {
+  filtrarPorEstado,
+  filtrarTexto,
+  OPCIONES_ESTADO,
+  type FiltroEstado,
+} from "../utils/filtros";
 import type { Escuela, Nino, TurnoNino, Usuario } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 const TURNOS: { value: TurnoNino; label: string }[] = [
   { value: "manana", label: "Mañana" },
@@ -58,6 +66,39 @@ export default function NinosScreen() {
   const [porEliminar, setPorEliminar] = useState<Nino | null>(null);
   const [motivo, setMotivo] = useState("");
   const [eliminando, setEliminando] = useState(false);
+
+  // --- Filtros de la tabla ---
+  // Niños es la coleccion con mas volumen del sistema (una por estudiante de la
+  // empresa), asi que es la que mas filtros necesita: ademas del buscador y del
+  // estado, se puede acotar por escuela y por turno, que son las dos preguntas
+  // que el admin se hace todo el tiempo ("quienes van al Bilingue", "quienes
+  // viajan en la tarde").
+  const [busqueda, setBusqueda] = useState("");
+  const [estado, setEstado] = useState<FiltroEstado>("activos");
+  const [filtroEscuela, setFiltroEscuela] = useState<string | null>(null);
+  const [filtroTurno, setFiltroTurno] = useState<string | null>(null);
+
+  const filtrados = useMemo(() => {
+    const nombrePadre = new Map(padres.map((p) => [p.id, p.nombre]));
+    const nombreDeEscuela = new Map(escuelas.map((e) => [e.id, e.nombre]));
+
+    let base = filtrarPorEstado(ninos ?? [], estado, (n) => n.activo);
+    if (filtroEscuela) base = base.filter((n) => n.escuelaId === filtroEscuela);
+    // 'ambos' cuenta como manana y como tarde: un niño que viaja las dos veces
+    // tiene que aparecer al filtrar por cualquiera de los dos turnos
+    if (filtroTurno) {
+      base = base.filter((n) => n.turno === filtroTurno || n.turno === "ambos");
+    }
+    return filtrarTexto(base, busqueda, (n) => [
+      n.nombre,
+      n.grado,
+      nombreDeEscuela.get(n.escuelaId ?? ""),
+      nombrePadre.get(n.padreId),
+      n.parada?.nombre,
+    ]);
+  }, [ninos, padres, escuelas, busqueda, estado, filtroEscuela, filtroTurno]);
+
+  const pag = usePaginacion(filtrados);
 
   const form = useForm({
     initialValues: {
@@ -222,7 +263,7 @@ export default function NinosScreen() {
   }
 
   if (!ninos) {
-    return <Loader />;
+    return <CargandoBus texto="Cargando los niños…" />;
   }
 
   const nombrePadre = (id: string) => padres.find((p) => p.id === id)?.nombre ?? "—";
@@ -236,6 +277,51 @@ export default function NinosScreen() {
           Nuevo niño
         </Button>
       </Group>
+
+      <FiltrosCatalogo
+        busqueda={busqueda}
+        onBusqueda={setBusqueda}
+        placeholder="Nombre, grado, escuela, padre o parada"
+        mostrados={filtrados.length}
+        total={ninos.length}
+        onLimpiar={() => {
+          setBusqueda("");
+          setEstado("activos");
+          setFiltroEscuela(null);
+          setFiltroTurno(null);
+        }}
+      >
+        <Select
+          label="Estado"
+          data={OPCIONES_ESTADO}
+          value={estado}
+          onChange={(v) => setEstado((v as FiltroEstado) ?? "activos")}
+          w={140}
+          allowDeselect={false}
+        />
+        <Select
+          label="Escuela"
+          placeholder="Todas"
+          clearable
+          searchable
+          data={escuelas.map((e) => ({ value: e.id, label: e.nombre }))}
+          value={filtroEscuela}
+          onChange={setFiltroEscuela}
+          w={200}
+        />
+        <Select
+          label="Turno"
+          placeholder="Todos"
+          clearable
+          data={[
+            { value: "manana", label: "Mañana" },
+            { value: "tarde", label: "Tarde" },
+          ]}
+          value={filtroTurno}
+          onChange={setFiltroTurno}
+          w={140}
+        />
+      </FiltrosCatalogo>
 
       <Table striped highlightOnHover>
         <Table.Thead>
@@ -251,7 +337,7 @@ export default function NinosScreen() {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {ninos.map((nino) => (
+          {pag.visibles.map((nino) => (
             <Table.Tr key={nino.id}>
               <Table.Td>
                 <Group gap="sm" wrap="nowrap">
@@ -281,17 +367,25 @@ export default function NinosScreen() {
               </Table.Td>
             </Table.Tr>
           ))}
-          {ninos.length === 0 && (
+          {filtrados.length === 0 && (
             <Table.Tr>
               <Table.Td colSpan={8}>
-                <Text c="dimmed" ta="center">
-                  Todavía no hay niños registrados.
+                <Text c="dimmed" ta="center" py="lg" size="sm">
+                  {ninos.length === 0
+                    ? "Todavía no hay niños registrados."
+                    : "Ningún niño coincide con los filtros."}
                 </Text>
               </Table.Td>
             </Table.Tr>
           )}
         </Table.Tbody>
       </Table>
+
+      <PiePaginacion
+        pagina={pag.pagina}
+        totalPaginas={pag.totalPaginas}
+        onPagina={pag.setPagina}
+      />
 
       <Modal
         opened={modalAbierto}

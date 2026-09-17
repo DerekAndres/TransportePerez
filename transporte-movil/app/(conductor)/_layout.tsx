@@ -4,10 +4,13 @@ import { ActivityIndicator } from 'react-native-paper';
 import { Redirect, Stack } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
+import { TRANSICION_APILADA, TRANSICION_SECCION } from '@/constants/navegacion';
 import {
   registrarTokenPush,
   reintentarAvisosPendientes,
 } from '@/services/notificacionesService';
+import { reintentarRegistrosPendientes } from '@/services/colaRegistros';
+import CargandoBus from '@/components/CargandoBus';
 
 // Layout protegido: solo un conductor logueado puede ver las pantallas de este grupo.
 //
@@ -28,12 +31,15 @@ export default function ConductorLayout() {
     // señal en la ruta (ver COLA DE AVISOS PENDIENTES en notificacionesService).
     // Es el caso más común de los tres roles: el bus pierde cobertura seguido.
     reintentarAvisosPendientes().catch(() => {});
+    // Y las marcas de asistencia que quedaron guardadas en el teléfono sin
+    // llegar al servidor (ver colaRegistros.ts)
+    reintentarRegistrosPendientes().catch(() => {});
   }, [uid]);
 
   if (cargando) {
     return (
       <View style={styles.centrado}>
-        <ActivityIndicator size="large" />
+        <CargandoBus />
       </View>
     );
   }
@@ -51,9 +57,16 @@ export default function ConductorLayout() {
     return <Redirect href="/" />;
   }
 
-  // Misma transición deslizante que en el grupo del padre, para que la app se
-  // sienta igual en los dos roles
-  return <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }} />;
+  // Por defecto, la transición APILADA; las pantallas de sección (las de
+  // la barra de abajo) se cruzan con un fundido. Ver constants/navegacion.ts
+  return (
+    <Stack screenOptions={{ headerShown: false, ...TRANSICION_APILADA }}>
+      <Stack.Screen name="hoy" options={TRANSICION_SECCION} />
+      <Stack.Screen name="mensajes" options={TRANSICION_SECCION} />
+      <Stack.Screen name="avisos" options={TRANSICION_SECCION} />
+      <Stack.Screen name="configuracion" options={TRANSICION_SECCION} />
+    </Stack>
+  );
 }
 
 const styles = StyleSheet.create({

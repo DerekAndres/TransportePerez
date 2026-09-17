@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
-import { ActionIcon, Button, Group, Stack, Text } from "@mantine/core";
-import { IconFocusCentered } from "@tabler/icons-react";
+import { MapContainer, Marker, Popup, Tooltip, useMap } from "react-leaflet";
+import { Button, Group, Stack, Text } from "@mantine/core";
+import BotonCentrarMapa from "./BotonCentrarMapa";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import CaminoPorCalles from "./CaminoPorCalles";
+import CapaTeselas from "./CapaTeselas";
 import { formatearDistancia } from "../utils/geo";
 import type { ParadaRecorrido } from "../utils/recorrido";
 import type { Escuela } from "../types/models";
@@ -164,13 +165,8 @@ export default function MapaArmador({
         zoom={12}
         style={{ height: "100%", width: "100%", borderRadius: 8 }}
       >
-        {/* Teselas CARTO Positron: las mismas de supervisión y del móvil */}
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO'
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-          subdomains="abcd"
-          maxZoom={20}
-        />
+        {/* El mismo proveedor de teselas que el móvil, con respaldo (utils/mapa.ts) */}
+        <CapaTeselas />
 
         <AjustarVista posiciones={posiciones} clave={claveVista} encuadres={encuadres} />
 
@@ -253,15 +249,10 @@ export default function MapaArmador({
       </MapContainer>
 
       {/* Reencuadrar a mano, sin que el mapa salte solo mientras se trabaja */}
-      <ActionIcon
-        variant="default"
-        size="lg"
-        title="Centrar el mapa en la ruta"
+      <BotonCentrarMapa
+        titulo="Centrar el mapa en la ruta"
         onClick={() => setEncuadres((n) => n + 1)}
-        style={{ position: "absolute", right: 10, top: 10, zIndex: 1000 }}
-      >
-        <IconFocusCentered size={18} />
-      </ActionIcon>
+      />
     </div>
   );
 }

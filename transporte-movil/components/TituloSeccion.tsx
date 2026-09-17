@@ -12,18 +12,27 @@ export default function TituloSeccion({
   titulo,
   onVerTodo,
   textoAccion = 'Ver todo',
+  detalle,
 }: {
   titulo: string;
   onVerTodo?: () => void;
   textoAccion?: string;
+  // Etiqueta PASIVA a la derecha, cuando no hay a dónde ir ("2 inscritos").
+  // Es distinta de `textoAccion`: aquélla lleva a otra pantalla y se ve como un
+  // enlace; ésta solo informa, así que va tenue y no invita a tocarla. Sin esa
+  // diferencia, el usuario toca un texto que no hace nada.
+  detalle?: string;
 }) {
   const tema = useTheme();
 
   return (
     <View style={styles.fila}>
-      <Text variant="titleMedium" style={styles.titulo}>
-        {titulo}
-      </Text>
+      <Text variant="titleLarge">{titulo}</Text>
+      {!onVerTodo && !!detalle && (
+        <Text variant="labelMedium" style={styles.detalle}>
+          {detalle}
+        </Text>
+      )}
       {onVerTodo && (
         <TouchableRipple onPress={onVerTodo} borderless style={styles.accion}>
           <View style={styles.filaAccion}>
@@ -46,7 +55,7 @@ const styles = StyleSheet.create({
     // Pega el título a la tarjeta que va justo debajo
     marginBottom: -ESPACIO.interno,
   },
-  titulo: { fontWeight: '700' },
   accion: { borderRadius: RADIO.pastilla, paddingVertical: 4, paddingHorizontal: 6 },
+  detalle: { opacity: 0.6 },
   filaAccion: { flexDirection: 'row', alignItems: 'center', gap: 2 },
 });

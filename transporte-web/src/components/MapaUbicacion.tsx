@@ -1,5 +1,7 @@
-import { useEffect, useRef } from "react";
-import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { useEffect, useRef, useState } from "react";
+import { MapContainer, Marker, useMap, useMapEvents } from "react-leaflet";
+import BotonCentrarMapa from "./BotonCentrarMapa";
+import CapaTeselas from "./CapaTeselas";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { TipoLugar } from "../types/models";
@@ -41,16 +43,27 @@ function CapturadorDeClics({ onClic }: { onClic: (lat: number, lng: number) => v
 
 // Acerca el mapa a la ubicación ya marcada, UNA sola vez (al abrir el formulario
 // de algo que ya tiene lugar). Después no se vuelve a mover: si reencuadrara en
-// cada clic, el mapa saltaría mientras el admin corrige la posición.
-function EncuadrarUnaVez({ ubicacion }: { ubicacion: { lat: number; lng: number } | null }) {
+// cada clic, el mapa saltaría mientras el admin corrige la posición. Para
+// volver al lugar marcado después de haber paneado buscando está el botón de
+// centrar, que sube `encuadres`.
+function Encuadrar({
+  ubicacion,
+  encuadres,
+}: {
+  ubicacion: { lat: number; lng: number } | null;
+  encuadres: number;
+}) {
   const map = useMap();
   const yaEncuadro = useRef(false);
+  const ultimoEncuadre = useRef(encuadres);
 
   useEffect(() => {
-    if (yaEncuadro.current || !ubicacion) return;
+    const pidioAMano = ultimoEncuadre.current !== encuadres;
+    if ((yaEncuadro.current && !pidioAMano) || !ubicacion) return;
     yaEncuadro.current = true;
+    ultimoEncuadre.current = encuadres;
     map.setView([ubicacion.lat, ubicacion.lng], 16);
-  }, [ubicacion, map]);
+  }, [ubicacion, encuadres, map]);
 
   return null;
 }
@@ -73,27 +86,35 @@ export default function MapaUbicacion({
   tipo = "casa",
   altura = 320,
 }: Props) {
+  const [encuadres, setEncuadres] = useState(0);
+
   return (
-    <MapContainer
-      center={ubicacion ? [ubicacion.lat, ubicacion.lng] : CENTRO_LA_CEIBA}
-      zoom={ubicacion ? 16 : 13}
-      // Esquinas redondeadas como el resto de los mapas del sistema. El overflow
-      // es lo que recorta las teselas, que son cuadradas.
-      style={{ height: altura, width: "100%", borderRadius: 12, overflow: "hidden" }}
-    >
-      {/* Teselas CARTO Positron: estilo claro, sobre datos de OpenStreetMap.
-          Las mismas que usan supervisión y los mapas del móvil. */}
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO'
-        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        subdomains="abcd"
-        maxZoom={20}
-      />
-      <EncuadrarUnaVez ubicacion={ubicacion} />
-      <CapturadorDeClics onClic={onElegirUbicacion} />
+    <div style={{ position: "relative", width: "100%" }}>
+      <MapContainer
+        center={ubicacion ? [ubicacion.lat, ubicacion.lng] : CENTRO_LA_CEIBA}
+        zoom={ubicacion ? 16 : 13}
+        // Esquinas redondeadas como el resto de los mapas del sistema. El overflow
+        // es lo que recorta las teselas, que son cuadradas.
+        style={{ height: altura, width: "100%", borderRadius: 12, overflow: "hidden" }}
+      >
+        {/* El mismo proveedor de teselas que supervisión y los mapas del móvil,
+            con respaldo automático (ver utils/mapa.ts) */}
+        <CapaTeselas />
+        <Encuadrar ubicacion={ubicacion} encuadres={encuadres} />
+        <CapturadorDeClics onClic={onElegirUbicacion} />
+        {ubicacion && (
+          <Marker position={[ubicacion.lat, ubicacion.lng]} icon={iconoLugar(tipo)} />
+        )}
+      </MapContainer>
+
+      {/* Sin lugar marcado no hay nada que centrar: el botón aparece recién
+          cuando hay un marcador al que volver */}
       {ubicacion && (
-        <Marker position={[ubicacion.lat, ubicacion.lng]} icon={iconoLugar(tipo)} />
+        <BotonCentrarMapa
+          titulo="Centrar el mapa en el lugar marcado"
+          onClick={() => setEncuadres((n) => n + 1)}
+        />
       )}
-    </MapContainer>
+    </div>
   );
 }

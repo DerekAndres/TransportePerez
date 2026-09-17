@@ -38,6 +38,23 @@ export function esReciente(momento: Timestamp): boolean {
   return Date.now() - momento.toMillis() < 24 * 60 * 60 * 1000;
 }
 
+// En qué grupo de una lista cae algo: "Hoy", "Ayer", "Esta semana" o "Antes".
+// Sirve para cortar una lista larga de avisos en tramos que se entienden sin
+// leer ninguna fecha. Se compara por DÍA DEL CALENDARIO y no por horas
+// transcurridas: un aviso de las 11 de la noche de ayer es "Ayer" aunque hayan
+// pasado nueve horas, que es como lo cuenta cualquier persona.
+export function grupoDeFecha(momento: Timestamp): string {
+  const fecha = momento.toDate();
+  const hoy = new Date();
+  const aMedianoche = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dias = Math.round((aMedianoche(hoy) - aMedianoche(fecha)) / (24 * 60 * 60 * 1000));
+
+  if (dias <= 0) return 'Hoy';
+  if (dias === 1) return 'Ayer';
+  if (dias < 7) return 'Esta semana';
+  return 'Antes';
+}
+
 // Saludo según la hora. Detalle chico que cambia mucho: la app deja de decir
 // siempre lo mismo y acompaña el momento del día en que se la usa (la mañana de
 // la ida y la tarde del regreso son los dos momentos en que se la abre).
@@ -46,4 +63,13 @@ export function saludoDelDia(): string {
   if (hora < 12) return 'Buenos días';
   if (hora < 19) return 'Buenas tardes';
   return 'Buenas noches';
+}
+
+// "06:15" (como el panel guarda la hora de salida de una ruta) → "6:15 a. m.".
+// Si llega algo que no es una hora, se devuelve tal cual.
+export function horaDeTexto(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return hhmm;
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${h < 12 ? 'a. m.' : 'p. m.'}`;
 }

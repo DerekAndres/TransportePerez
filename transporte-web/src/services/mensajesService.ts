@@ -4,6 +4,7 @@ import {
   doc,
   onSnapshot,
   query,
+  serverTimestamp,
   Timestamp,
   where,
   writeBatch,
@@ -34,6 +35,8 @@ export async function enviarMensaje(de: string, para: string, texto: string): Pr
     para,
     texto: limpio,
     hora: Timestamp.now(),
+    // La del servidor es la que vale como constancia (la exigen las reglas)
+    horaServidor: serverTimestamp(),
     leido: false,
   });
 }

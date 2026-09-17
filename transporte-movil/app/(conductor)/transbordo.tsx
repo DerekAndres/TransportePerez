@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Button, Chip, Text, useTheme } from 'react-native-paper';
+import { Button, Chip, Text, useTheme } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
@@ -9,11 +9,13 @@ import PantallaBase from '@/components/PantallaBase';
 import Tarjeta from '@/components/Tarjeta';
 import TituloSeccion from '@/components/TituloSeccion';
 import { RADIO, estilosBase } from '@/constants/estilos';
+import { FUENTES } from '@/constants/tema';
 import { fechaDeHoy, listarRegistrosDeViaje } from '@/services/viajesService';
+import { listarNinosQueLlevo } from '@/services/conductorService';
+import { pendientesDeViaje, reintentarRegistrosPendientes } from '@/services/colaRegistros';
 import { notificarEventoAlPadre } from '@/services/notificacionesService';
 import {
   escucharRegistrosDelPunto,
-  listarNinosActivos,
   marcarViajeDemorado,
   obtenerRuta,
   registrarTransbordo,
@@ -21,6 +23,7 @@ import {
   type EventoTransbordo,
 } from '@/services/transbordoService';
 import type { Nino, Registro, Ruta } from '@/types/models';
+import CargandoBus from '@/components/CargandoBus';
 
 // Pantalla de transbordo del conductor. Asimetría:
 //  - ENTREGA (decide): mis niños que bajan en este punto. Confirmo individual o "Todos".
@@ -50,19 +53,24 @@ export default function TransbordoScreen() {
   const [demorado, setDemorado] = useState(false);
   const [mostrarExcepcion, setMostrarExcepcion] = useState(false);
 
-  // Carga inicial: ruta, niños, registros de mi viaje
+  // Carga inicial: ruta, niños que llevo, registros de mi viaje (los del
+  // servidor y los que todavía están en la cola del teléfono)
+  const uid = usuario?.id;
   useEffect(() => {
+    if (!uid) return;
     let cancelado = false;
     (async () => {
-      const [r, ns, rv] = await Promise.all([
+      const [r, ns, rv, pendientes] = await Promise.all([
         obtenerRuta(params.rutaId),
-        listarNinosActivos(),
+        listarNinosQueLlevo(uid),
         listarRegistrosDeViaje(params.viajeId),
+        pendientesDeViaje(params.viajeId),
       ]);
       if (cancelado) return;
       setRuta(r);
       setNinos(ns);
-      setRegistrosViaje(rv);
+      const idsServidor = new Set(rv.map((reg) => reg.id));
+      setRegistrosViaje([...rv, ...pendientes.filter((p) => !idsServidor.has(p.id))]);
       setCargando(false);
     })().catch(() => {
       if (!cancelado) setCargando(false);
@@ -70,7 +78,7 @@ export default function TransbordoScreen() {
     return () => {
       cancelado = true;
     };
-  }, [params.rutaId, params.viajeId]);
+  }, [params.rutaId, params.viajeId, uid]);
 
   // Suscripción EN VIVO a los registros del punto (para ver lo que deja el otro bus)
   useEffect(() => {
@@ -88,7 +96,14 @@ export default function TransbordoScreen() {
   };
 
   const ninosPorId = useMemo(() => new Map(ninos.map((n) => [n.id, n])), [ninos]);
-  const nombre = (id: string) => ninosPorId.get(id)?.nombre ?? id;
+
+  // Nombre y escuela de un niño. Primero de los niños que llevo; si no está ahí
+  // (lo bajó el otro bus por excepción y no es de mi ruta, así que las reglas no
+  // me dejan leerlo), de lo que COPIÓ en el registro el conductor que lo entregó.
+  const copiaEnPunto = (id: string) => registrosPunto.find((r) => r.ninoId === id && r.ninoNombre);
+  const nombre = (id: string) =>
+    ninosPorId.get(id)?.nombre ?? copiaEnPunto(id)?.ninoNombre ?? 'Niño de otra ruta';
+  const escuelaDe = (id: string) => ninosPorId.get(id)?.escuelaId ?? copiaEnPunto(id)?.ninoEscuelaId;
 
   const bajoPunto = registrosPunto.filter((r) => r.evento === 'bajo'); // entregas en el punto
   const subioPunto = registrosPunto.filter((r) => r.evento === 'subio'); // recepciones en el punto
@@ -112,7 +127,7 @@ export default function TransbordoScreen() {
     .map((n) => n.ninoId);
   const recibeIds = [...new Set([...recibePlanIds, ...bajoPunto.map((r) => r.ninoId)])];
   const itemsRecibe: ItemAsistencia[] = recibeIds.map((id) => {
-    const escuelaId = ninosPorId.get(id)?.escuelaId;
+    const escuelaId = escuelaDe(id);
     // Validación NO bloqueante: este bus no cubre la escuela del niño (se valida en
     // el receptor, que sí conoce SU propia ruta; el emisor nunca lee la ruta ajena)
     const noCubre = !!escuelaId && !escuelasRuta.has(escuelaId);
@@ -140,12 +155,22 @@ export default function TransbordoScreen() {
     hecho: false,
   }));
 
+  // Cada registro del punto lleva copiados el nombre y la escuela del niño, para
+  // que el otro bus los vea aunque no pueda leer al niño (ver arriba)
+  const conCopia = (item: EventoTransbordo): EventoTransbordo => ({
+    ...item,
+    ninoNombre: ninosPorId.get(item.ninoId)?.nombre,
+    ninoEscuelaId: ninosPorId.get(item.ninoId)?.escuelaId,
+  });
+
   // --- Acciones ---
   const registrar = async (items: EventoTransbordo[]) => {
     if (items.length === 0) return;
     setOcupado(true);
     try {
-      await registrarTransbordo(ctx, items);
+      // Queda guardado en el teléfono antes de mandarse (ver colaRegistros.ts):
+      // sin señal no se pierde, y la lista del punto se actualiza sola
+      await registrarTransbordo(ctx, items.map(conCopia));
       // Fase 6: solo la ENTREGA en el punto avisa al padre, con texto neutro
       // ("sigue en camino") — el transbordo es invisible para él. La recepción no
       // notifica (sería un doble aviso del mismo cambio de bus) y "continuar sin
@@ -155,6 +180,7 @@ export default function TransbordoScreen() {
         .forEach((it) =>
           notificarEventoAlPadre(it.ninoId, 'bajo', { enPunto: true }).catch(() => {})
         );
+      reintentarRegistrosPendientes().catch(() => {});
     } catch {
       Alert.alert('Sin guardar', 'No se pudo guardar ahora. Se reintenta al volver la señal.');
     } finally {
@@ -212,7 +238,7 @@ export default function TransbordoScreen() {
     return (
       <PantallaBase titulo="Transbordo" alVolver={() => router.back()} scroll={false}>
         <View style={estilosBase.centrado}>
-          <ActivityIndicator size="large" />
+          <CargandoBus texto="Cargando el transbordo…" />
         </View>
       </PantallaBase>
     );
@@ -312,7 +338,7 @@ export default function TransbordoScreen() {
 const styles = StyleSheet.create({
   // Pega la aclaración al título de la sección que está justo arriba
   aclaracion: { marginTop: -14 },
-  negrita: { fontWeight: '700' },
+  negrita: { fontFamily: FUENTES.textoNegrita },
   contingencia: { marginTop: 8 },
   filaBotones: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   boton: { borderRadius: RADIO.control },

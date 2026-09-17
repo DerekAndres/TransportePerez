@@ -1,5 +1,7 @@
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -7,6 +9,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { fechaDeHoy } from "./viajesService";
 import type {
   Bus,
   Escuela,
@@ -16,6 +19,7 @@ import type {
   Punto,
   Ruta,
   Solicitud,
+  Suplencia,
   TipoLugar,
   Turno,
   Usuario,
@@ -40,30 +44,213 @@ export async function obtenerBusDelConductor(conductorId: string): Promise<Bus |
   return { id: d.id, ...d.data() } as Bus;
 }
 
-// --- Escucha EN TIEMPO REAL las rutas activas de un bus ---
-// onSnapshot dispara el callback en cada cambio (el admin edita la ruta desde el
-// panel → el conductor lo ve sin recargar). Devuelve la función para desuscribir.
-export function escucharRutasDelBus(
-  busId: string,
-  callback: (rutas: Ruta[]) => void
-): Unsubscribe {
-  return onSnapshot(
-    query(collection(db, "rutas"), where("busId", "==", busId), where("activa", "==", true)),
-    (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Ruta)),
-    () => callback([])
-  );
+// ============================================
+// QUÉ UNIDADES MANEJA HOY (SUPLENCIAS)
+// ============================================
+// Normalmente un conductor maneja SU unidad. Un día de suplencia cambia:
+//   - si a su unidad hoy la cubre otro conductor, él NO la maneja (`meCubre`);
+//   - si hoy cubre la unidad de otro, la maneja ADEMÁS de la suya (`cubro`).
+// La asignación permanente (Bus.conductorId) nunca se toca: al día siguiente
+// todo vuelve solo a la normalidad. Ver "SUPLENCIAS" en models.ts.
+export interface UnidadesDelDia {
+  buses: Bus[]; // las unidades que maneja HOY
+  meCubre: Suplencia | null; // quién cubre hoy su unidad, si alguien la cubre
+  cubro: Suplencia[]; // las unidades de otros que cubre hoy
 }
 
-// --- Los niños asignados a la ruta (ruta.ninoIds) ---
-// Trae los niños activos y filtra por los ids de la ruta en el cliente (evita
-// consultar por lista de ids, que en Firestore es limitado).
-export async function listarNinosDeRuta(ninoIds: string[]): Promise<Nino[]> {
-  if (ninoIds.length === 0) return [];
-  const snap = await getDocs(query(collection(db, "ninos"), where("activo", "==", true)));
-  const permitidos = new Set(ninoIds);
+// --- Las suplencias vigentes de hoy (una colección chica: pocas por día) ---
+export async function listarSuplenciasDeHoy(): Promise<Suplencia[]> {
+  const snap = await getDocs(
+    query(collection(db, "suplencias"), where("fecha", "==", fechaDeHoy()))
+  );
   return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }) as Nino)
-    .filter((n) => permitidos.has(n.id));
+    .map((d) => ({ id: d.id, ...d.data() }) as Suplencia)
+    .filter((s) => !s.cancelada);
+}
+
+export async function obtenerUnidadesDelDia(conductorId: string): Promise<UnidadesDelDia> {
+  const [propia, suplencias] = await Promise.all([
+    obtenerBusDelConductor(conductorId),
+    listarSuplenciasDeHoy(),
+  ]);
+
+  const meCubre = propia
+    ? (suplencias.find((s) => s.busId === propia.id && s.conductorId !== conductorId) ?? null)
+    : null;
+  const cubro = suplencias.filter((s) => s.conductorId === conductorId && s.busId !== propia?.id);
+
+  // Las unidades que cubre se leen por id (cualquier cuenta activa puede leer buses)
+  const ajenas = await Promise.all(cubro.map((s) => getDoc(doc(db, "buses", s.busId))));
+  const busesCubiertos = ajenas
+    .filter((d) => d.exists())
+    .map((d) => ({ id: d.id, ...d.data() }) as Bus)
+    .filter((b) => b.activo);
+
+  return {
+    buses: [...(propia && !meCubre ? [propia] : []), ...busesCubiertos],
+    meCubre,
+    cubro,
+  };
+}
+
+// ============================================
+// POR QUÉ EL CONDUCTOR NO VE SU RUTA
+// ============================================
+// Cuando la pantalla del conductor queda vacía hay CUATRO causas posibles, y
+// hasta ahora las cuatro mostraban el mismo mensaje ("no tenés un bus
+// asignado"), porque las consultas devolvían `null` o `[]` tanto si no había
+// nada como si la consulta había fallado. Eso convertía un problema de cinco
+// segundos en una búsqueda a ciegas entre el panel y la app.
+//
+// Ojo con un detalle de Firestore que causa exactamente este síntoma: un filtro
+// de igualdad EXCLUYE los documentos que no tienen ese campo. Una ruta sin el
+// campo `activa` no es "una ruta inactiva": es una ruta invisible para
+// `where("activa","==",true)`, y sin embargo el panel la lista igual, porque
+// allá no hay filtro. De ahí que el admin jure que la ruta existe y el conductor
+// no la vea.
+//
+// Esta función repite las mismas consultas SIN los filtros de estado y compara,
+// para poder decir qué pasó de verdad. Solo se llama cuando ya falló el camino
+// normal, así que no cuesta lecturas en el uso diario.
+export type DiagnosticoAsignacion =
+  | { causa: "sin_bus" }
+  | { causa: "bus_inactivo"; placa: string }
+  | { causa: "sin_rutas"; placa: string }
+  | { causa: "rutas_inactivas"; placa: string; cuantas: number }
+  | { causa: "sin_permiso" }
+  | { causa: "error" };
+
+export async function diagnosticarAsignacion(
+  conductorId: string,
+  // Si el que llama YA tiene un error de Firestore (por ejemplo, el que devolvió
+  // la suscripción a las rutas), se pasa acá: vale más que cualquier deducción.
+  errorPrevio?: unknown
+): Promise<DiagnosticoAsignacion> {
+  if (errorPrevio) return causaDeError(errorPrevio);
+  try {
+    // Todos los buses de este conductor, ACTIVOS O NO
+    const buses = await getDocs(
+      query(collection(db, "buses"), where("conductorId", "==", conductorId))
+    );
+    if (buses.empty) return { causa: "sin_bus" };
+
+    // Si hay varios, importa si alguno está activo
+    const docsBus = buses.docs.map((d) => ({ id: d.id, ...d.data() }) as Bus);
+    const activo = docsBus.find((b) => b.activo === true);
+    if (!activo) return { causa: "bus_inactivo", placa: docsBus[0].placa ?? "(sin placa)" };
+
+    // Todas las rutas de ese bus, ACTIVAS O NO
+    const rutas = await getDocs(
+      query(collection(db, "rutas"), where("busId", "==", activo.id))
+    );
+    if (rutas.empty) return { causa: "sin_rutas", placa: activo.placa };
+
+    // Llegar acá significa que las rutas existen pero ninguna pasa el filtro
+    // `activa == true` — porque están desactivadas o porque les falta el campo
+    return { causa: "rutas_inactivas", placa: activo.placa, cuantas: rutas.size };
+  } catch (e) {
+    return causaDeError(e);
+  }
+}
+
+// Las reglas de Firestore devuelven 'permission-denied'. Distinguirlo de un
+// corte de internet importa: uno se arregla en las reglas y el otro esperando.
+function causaDeError(e: unknown): DiagnosticoAsignacion {
+  const codigo = (e as { code?: string })?.code ?? "";
+  if (codigo.includes("permission")) return { causa: "sin_permiso" };
+  return { causa: "error" };
+}
+
+// Traduce el diagnóstico a algo que el conductor pueda leerle por teléfono al
+// administrador. Cada mensaje dice QUÉ pasa y QUÉ hay que tocar en el panel.
+export function mensajeDeDiagnostico(d: DiagnosticoAsignacion): string {
+  switch (d.causa) {
+    case "sin_bus":
+      return "Tu cuenta todavía no tiene una unidad asignada. En el panel: Buses → elegí la unidad → asignate como conductor.";
+    case "bus_inactivo":
+      return `Tu unidad ${d.placa} está DESACTIVADA en el panel. En Buses, prendé su interruptor para que vuelva a aparecer.`;
+    case "sin_rutas":
+      return `Tu unidad ${d.placa} no tiene ninguna ruta. En el panel: Rutas → Nueva ruta → asignale la unidad ${d.placa}.`;
+    case "rutas_inactivas":
+      return `Tu unidad ${d.placa} tiene ${d.cuantas} ${d.cuantas === 1 ? "ruta" : "rutas"}, pero ${d.cuantas === 1 ? "está desactivada" : "todas están desactivadas"}. En el panel: Rutas → prendé su interruptor.`;
+    case "sin_permiso":
+      return "La app no tiene permiso para leer las rutas. Avisale al administrador: hay que revisar las reglas de seguridad.";
+    default:
+      return "No se pudo consultar tu ruta. Revisá tu conexión y tocá Reintentar.";
+  }
+}
+
+// --- Escucha EN TIEMPO REAL las rutas activas de varias unidades ---
+// Un listener por unidad (normalmente es una sola; en un día de suplencia
+// pueden ser dos), combinados en una lista. onSnapshot dispara en cada cambio:
+// si el admin edita una ruta desde el panel, el conductor lo ve sin recargar.
+// El segundo parámetro del callback llega SOLO si una consulta falló, para que
+// un permiso denegado no se confunda con "esta unidad no tiene rutas".
+export function escucharRutasDeBuses(
+  busIds: string[],
+  callback: (rutas: Ruta[], error?: unknown) => void
+): Unsubscribe {
+  const porBus = new Map<string, Ruta[]>();
+  let ultimoError: unknown;
+
+  const emitir = () => {
+    if (porBus.size < busIds.length) return; // espera la primera respuesta de todas
+    callback([...porBus.values()].flat(), ultimoError);
+  };
+
+  const desuscripciones = busIds.map((busId) =>
+    onSnapshot(
+      query(collection(db, "rutas"), where("busId", "==", busId), where("activa", "==", true)),
+      (snap) => {
+        porBus.set(busId, snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Ruta));
+        emitir();
+      },
+      (error) => {
+        ultimoError = error;
+        porBus.set(busId, []);
+        emitir();
+      }
+    )
+  );
+
+  return () => desuscripciones.forEach((desuscribir) => desuscribir());
+}
+
+// --- Los niños que lleva este conductor ---
+// Las reglas de Firestore solo le dejan leer a los niños que tienen su uid en
+// `conductorIds` (los de las rutas de las unidades que maneja, que el panel
+// recalcula). La consulta tiene que decirlo con el mismo filtro: pedir "todos
+// los niños activos" sería rechazado entero.
+export async function listarNinosQueLlevo(conductorId: string): Promise<Nino[]> {
+  const snap = await getDocs(
+    query(collection(db, "ninos"), where("conductorIds", "array-contains", conductorId))
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Nino).filter((n) => n.activo);
+}
+
+// --- Los niños asignados a una ruta (ruta.ninoIds) ---
+// Se traen los que lleva el conductor y se filtra en el cliente por los ids de
+// la ruta. Devuelve además cuántos niños de la ruta NO se pudieron leer: eso
+// quiere decir que el panel todavía no recalculó los accesos, y la pantalla lo
+// AVISA (hoy.tsx) en vez de mostrar una lista incompleta en silencio, que es
+// como se deja a un niño esperando en la parada.
+export async function listarNinosDeRuta(
+  conductorId: string,
+  ninoIds: string[]
+): Promise<{ ninos: Nino[]; sinAcceso: number }> {
+  if (ninoIds.length === 0) return { ninos: [], sinAcceso: 0 };
+  // Sin filtrar por activo en la consulta: un niño archivado que sigue en la
+  // ruta se puede leer (no es un problema de acceso), solo no se muestra
+  const snap = await getDocs(
+    query(collection(db, "ninos"), where("conductorIds", "array-contains", conductorId))
+  );
+  const legibles = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Nino);
+  const idsLegibles = new Set(legibles.map((n) => n.id));
+  const pedidos = new Set(ninoIds);
+  return {
+    ninos: legibles.filter((n) => pedidos.has(n.id) && n.activo),
+    sinAcceso: [...pedidos].filter((id) => !idsLegibles.has(id)).length,
+  };
 }
 
 // --- Las escuelas de la ruta (ruta.escuelaIds), para nombres y "Llegué a la escuela" ---
@@ -98,34 +285,31 @@ export async function listarPuntosPorIds(ids: string[]): Promise<Punto[]> {
 }
 
 // --- Contactos de chat del conductor (Fase 7): con quién puede escribirse ---
-// Son los padres de los niños de sus rutas activas (mañana y tarde), más la
-// administración. Se lee todo con filtros de igualdad, sin índices compuestos.
+// Son los padres de los niños que lleva (los de sus rutas y los de la unidad
+// que cubre si tiene una suplencia), más la administración. Se leen SOLO esos
+// perfiles, uno por uno: las reglas no dejan descargar la lista de usuarios, y
+// además es mucho más barato en lecturas.
 export async function listarContactosConductor(
   conductorId: string
 ): Promise<{ padres: Usuario[]; admin: Usuario | null }> {
-  const [usuariosSnap, bus] = await Promise.all([
-    getDocs(collection(db, "usuarios")),
-    obtenerBusDelConductor(conductorId),
+  const [ninos, snapAdmin] = await Promise.all([
+    listarNinosQueLlevo(conductorId),
+    getDocs(query(collection(db, "usuarios"), where("rol", "==", "admin"))),
   ]);
-  const usuarios = usuariosSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Usuario);
-  const admin = usuarios.find((u) => u.rol === "admin" && u.activo) ?? null;
 
-  if (!bus) return { padres: [], admin };
+  const admin =
+    snapAdmin.docs
+      .map((d) => ({ id: d.id, ...d.data() }) as Usuario)
+      .find((u) => u.activo !== false) ?? null;
 
-  // Niños de todas las rutas activas del bus → sus padres (sin repetir)
-  const [rutasSnap, ninosSnap] = await Promise.all([
-    getDocs(query(collection(db, "rutas"), where("busId", "==", bus.id), where("activa", "==", true))),
-    getDocs(query(collection(db, "ninos"), where("activo", "==", true))),
-  ]);
-  const ninoIds = new Set<string>();
-  rutasSnap.docs.forEach((d) => (d.data() as Ruta).ninoIds?.forEach((id) => ninoIds.add(id)));
-  const padreIds = new Set<string>();
-  ninosSnap.docs.forEach((d) => {
-    const nino = d.data() as Nino;
-    if (ninoIds.has(d.id) && nino.padreId) padreIds.add(nino.padreId);
-  });
+  const padreIds = [...new Set(ninos.map((n) => n.padreId).filter(Boolean))];
+  const perfiles = await Promise.all(
+    padreIds.map((id) => getDoc(doc(db, "usuarios", id)).catch(() => null))
+  );
+  const padres = perfiles
+    .filter((snap) => !!snap?.exists())
+    .map((snap) => ({ id: snap!.id, ...snap!.data() }) as Usuario);
 
-  const padres = usuarios.filter((u) => u.rol === "padre" && padreIds.has(u.id));
   return { padres, admin };
 }
 

@@ -6,7 +6,6 @@ import {
   Drawer,
   Flex,
   Group,
-  Loader,
   Paper,
   ScrollArea,
   Select,
@@ -49,6 +48,7 @@ import type {
   Usuario,
   Viaje,
 } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 // Fecha local "YYYY-MM-DD" (mismo formato que Viaje.fecha)
 function fechaDeHoy(): string {
@@ -144,6 +144,10 @@ export default function SupervisionScreen() {
           ruta: rutas.get(viaje.rutaId),
           rutaNombre: rutas.get(viaje.rutaId)?.nombre ?? "Ruta",
           busPlaca: buses.get(viaje.busId)?.placa ?? "—",
+          // La foto de la unidad va al marcador del mapa: con varios buses
+          // moviéndose a la vez, es lo que permite reconocerlos sin pasar el
+          // mouse por cada uno (ver MapaBuses)
+          busFoto: buses.get(viaje.busId)?.foto,
           conductorNombre: usuarios.get(viaje.conductorId)?.nombre ?? "—",
           conductorFoto: usuarios.get(viaje.conductorId)?.foto,
           ubic: ubicaciones.get(viaje.id),
@@ -171,6 +175,8 @@ export default function SupervisionScreen() {
       lng: f.ubic!.lng,
       titulo: f.rutaNombre,
       subtitulo: `${f.conductorNombre} · ${f.busPlaca}`,
+      foto: f.busFoto,
+      placa: f.busPlaca,
     }));
 
   // El recorrido de la ruta enfocada: el MISMO que ve el conductor en su
@@ -200,7 +206,7 @@ export default function SupervisionScreen() {
   ];
 
   if (cargandoLabels) {
-    return <Loader />;
+    return <CargandoBus texto="Buscando los buses en viaje…" />;
   }
 
   // Una fila de la lista lateral: se puede enfocar en el mapa o abrir su detalle

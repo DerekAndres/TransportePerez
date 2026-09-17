@@ -11,6 +11,7 @@ import {
   Modal,
   Progress,
   ScrollArea,
+  Select,
   Stack,
   Switch,
   Table,
@@ -35,10 +36,24 @@ import {
   type ImpactoBorradoRuta,
 } from "../services/rutasService";
 import { listarBuses } from "../services/busesService";
+import {
+  AVISO_ACCESOS_PENDIENTES,
+  recalcularAccesosDespuesDeGuardar,
+} from "../services/accesoConductoresService";
 import { listarEscuelas } from "../services/escuelasService";
 import { listarNinos } from "../services/ninosService";
+import { listarUsuarios } from "../services/usuariosService";
 import { TURNOS, etiquetaTurno, viajaEnTurno } from "../utils/turnos";
-import type { Bus, Escuela, Nino, Ruta, Turno } from "../types/models";
+import FiltrosCatalogo, { PiePaginacion } from "../components/FiltrosCatalogo";
+import { usePaginacion } from "../hooks/use-paginacion";
+import {
+  filtrarPorEstado,
+  filtrarTexto,
+  OPCIONES_ESTADO,
+  type FiltroEstado,
+} from "../utils/filtros";
+import type { Bus, Escuela, Nino, Ruta, Turno, Usuario } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 // Pantalla de Rutas: la lista y el acceso al armador. Todo el trabajo de
 // asignar niños y marcar transbordos vive en /rutas/:id (ArmadorRutaScreen),
@@ -47,6 +62,10 @@ export default function RutasScreen() {
   const navigate = useNavigate();
   const [rutas, setRutas] = useState<Ruta[] | null>(null);
   const [buses, setBuses] = useState<Bus[]>([]);
+  // Todas las unidades, incluidas las desactivadas, y todos los conductores:
+  // se usan solo para el diagnóstico de entrega (ver `problemaDeEntrega`)
+  const [todosLosBuses, setTodosLosBuses] = useState<Bus[]>([]);
+  const [conductores, setConductores] = useState<Usuario[]>([]);
   const [ninos, setNinos] = useState<Nino[]>([]);
   const [escuelas, setEscuelas] = useState<Escuela[]>([]);
   const [error, setError] = useState("");
@@ -62,12 +81,50 @@ export default function RutasScreen() {
   const [nombreEscrito, setNombreEscrito] = useState("");
   const [borrandoRuta, setBorrandoRuta] = useState(false);
 
+  // --- Filtros de la tabla ---
+  // Se busca por nombre de ruta, por PLACA de la unidad y por nombre de las
+  // escuelas que sirve: el admin llega a una ruta por cualquiera de las tres,
+  // y muchas veces lo que tiene a mano es "la del bus PRU-002".
+  const [busqueda, setBusqueda] = useState("");
+  const [estado, setEstado] = useState<FiltroEstado>("activos");
+  const [filtroTurno, setFiltroTurno] = useState<string | null>(null);
+
+  const filtradas = useMemo(() => {
+    const placaPorId = new Map(buses.map((b) => [b.id, b.placa]));
+    const nombrePorEscuela = new Map(escuelas.map((e) => [e.id, e.nombre]));
+
+    let base = filtrarPorEstado(rutas ?? [], estado, (r) => r.activa);
+    if (filtroTurno) base = base.filter((r) => r.turno === filtroTurno);
+
+    return filtrarTexto(base, busqueda, (r) => [
+      r.nombre,
+      placaPorId.get(r.busId),
+      r.municipio,
+      ...(r.escuelaIds ?? []).map((id) => nombrePorEscuela.get(id)),
+    ]);
+  }, [rutas, buses, escuelas, busqueda, estado, filtroTurno]);
+
+  const pag = usePaginacion(filtradas);
+
   const cargar = () => {
-    Promise.all([listarRutas(), listarBuses(), listarNinos(), listarEscuelas()])
-      .then(([listaRutas, listaBuses, listaNinos, listaEscuelas]) => {
+    Promise.all([
+      listarRutas(),
+      listarBuses(),
+      listarNinos(),
+      listarEscuelas(),
+      listarUsuarios(),
+    ])
+      .then(([listaRutas, listaBuses, listaNinos, listaEscuelas, listaUsuarios]) => {
         setError("");
         setRutas(listaRutas);
+        // El selector del formulario solo ofrece unidades ACTIVAS…
         setBuses(listaBuses.filter((b) => b.activo));
+        // …pero para revisar por qué una ruta no le llega al conductor hacen
+        // falta TAMBIÉN las desactivadas: si acá se filtraran, una unidad
+        // apagada se vería como "(sin bus)" y el admin buscaría el problema
+        // donde no está.
+        setTodosLosBuses(listaBuses);
+        setConductores(listaUsuarios.filter((u) => u.rol === "conductor"));
         setNinos(listaNinos.filter((n) => n.activo));
         setEscuelas(listaEscuelas.filter((e) => e.activa));
       })
@@ -81,6 +138,14 @@ export default function RutasScreen() {
   useEffect(cargar, []);
 
   const busesPorId = useMemo(() => new Map(buses.map((b) => [b.id, b])), [buses]);
+  const todosLosBusesPorId = useMemo(
+    () => new Map(todosLosBuses.map((b) => [b.id, b])),
+    [todosLosBuses]
+  );
+  const conductoresPorId = useMemo(
+    () => new Map(conductores.map((c) => [c.id, c])),
+    [conductores]
+  );
 
   // --- Niños que no viajan en ninguna ruta activa de su turno ---
   // Es el dato operativo que faltaba: un niño sin ruta no lo recoge nadie y
@@ -105,6 +170,10 @@ export default function RutasScreen() {
   const alternarActiva = async (ruta: Ruta) => {
     try {
       await cambiarActivaRuta(ruta.id, !ruta.activa);
+      // Una ruta apagada deja de darle acceso a sus niños al conductor
+      if (!(await recalcularAccesosDespuesDeGuardar())) {
+        notifications.show(AVISO_ACCESOS_PENDIENTES);
+      }
       cargar();
     } catch {
       notifications.show({ color: "red", message: "No se pudo cambiar el estado." });
@@ -136,7 +205,10 @@ export default function RutasScreen() {
     if (!aBorrar || !impacto) return;
     setBorrandoRuta(true);
     try {
-      await borrarRuta(impacto.otrasRutas, aBorrar.id);
+      await borrarRuta(impacto.otrasRutas, aBorrar.id, aBorrar.nombre);
+      if (!(await recalcularAccesosDespuesDeGuardar())) {
+        notifications.show(AVISO_ACCESOS_PENDIENTES);
+      }
       notifications.show({
         color: "green",
         message:
@@ -172,8 +244,50 @@ export default function RutasScreen() {
     );
   }
 
+  // ============================================
+  // ¿ESTA RUTA LE LLEGA A ALGÚN CONDUCTOR?
+  // ============================================
+  // El panel y la app NO miran lo mismo, y esa diferencia es exactamente la que
+  // hace que el admin jure que la ruta existe mientras el conductor ve la
+  // pantalla vacía:
+  //
+  //   · acá se listan TODAS las rutas (sin filtrar por `activa`);
+  //   · la app del conductor pide `busId == su unidad` Y `activa == true`.
+  //
+  // Y hay un detalle de Firestore que agrava el malentendido: un filtro de
+  // igualdad DESCARTA los documentos que no tienen ese campo. Una ruta sin
+  // `activa` no es "una ruta inactiva", es una ruta INVISIBLE para la app — y
+  // sin embargo acá se lista con normalidad.
+  //
+  // Esta función recorre la misma cadena que recorre la app
+  // (ruta → unidad → conductor) y devuelve el PRIMER eslabón roto, para que el
+  // problema se vea en la pantalla donde se arregla.
+  const problemaDeEntrega = (ruta: Ruta): string | null => {
+    if (ruta.activa !== true) {
+      return "La ruta está desactivada: el conductor no la ve. Prendé el interruptor de la columna Activa.";
+    }
+    const bus = todosLosBusesPorId.get(ruta.busId);
+    if (!bus) {
+      return "La ruta no tiene unidad asignada (o la unidad fue borrada). Editá la ruta y elegí una.";
+    }
+    if (bus.activo !== true) {
+      return `La unidad ${bus.placa} está desactivada, así que el conductor no ve ninguna de sus rutas. Prendela en la pantalla Buses.`;
+    }
+    if (!bus.conductorId) {
+      return `La unidad ${bus.placa} no tiene conductor asignado. Asignale uno en la pantalla Buses.`;
+    }
+    const conductor = conductoresPorId.get(bus.conductorId);
+    if (!conductor) {
+      return `El conductor asignado a la unidad ${bus.placa} ya no existe. Elegí otro en la pantalla Buses.`;
+    }
+    if (conductor.activo !== true) {
+      return `${conductor.nombre}, conductor de la unidad ${bus.placa}, está desactivado. Reactivalo en Usuarios o asigná otro conductor a la unidad.`;
+    }
+    return null;
+  };
+
   if (!rutas) {
-    return <Loader />;
+    return <CargandoBus texto="Cargando las rutas…" />;
   }
 
   const placaBus = (id: string) => busesPorId.get(id)?.placa ?? "(sin bus)";
@@ -229,6 +343,40 @@ export default function RutasScreen() {
         </Alert>
       )}
 
+      <FiltrosCatalogo
+        busqueda={busqueda}
+        onBusqueda={setBusqueda}
+        placeholder="Ruta, placa, municipio o escuela"
+        mostrados={filtradas.length}
+        total={rutas.length}
+        onLimpiar={() => {
+          setBusqueda("");
+          setEstado("activos");
+          setFiltroTurno(null);
+        }}
+      >
+        <Select
+          label="Estado"
+          data={OPCIONES_ESTADO}
+          value={estado}
+          onChange={(v) => setEstado((v as FiltroEstado) ?? "activos")}
+          w={140}
+          allowDeselect={false}
+        />
+        <Select
+          label="Turno"
+          placeholder="Todos"
+          clearable
+          data={[
+            { value: "manana", label: "Mañana" },
+            { value: "tarde", label: "Tarde" },
+          ]}
+          value={filtroTurno}
+          onChange={setFiltroTurno}
+          w={140}
+        />
+      </FiltrosCatalogo>
+
       <Table striped highlightOnHover>
         <Table.Thead>
           <Table.Tr>
@@ -243,17 +391,43 @@ export default function RutasScreen() {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {rutas.map((ruta) => {
+          {pag.visibles.map((ruta) => {
             const entrega = (ruta.ninos ?? []).some((n) => n.bajaEn.tipo === "punto");
             const recibe = (ruta.ninos ?? []).some((n) => n.subeEn.tipo === "punto");
             const aBordo = ruta.ninoIds?.length ?? 0;
             const capacidad = busesPorId.get(ruta.busId)?.capacidad ?? 0;
             const excedido = capacidad > 0 && aBordo > capacidad;
+            // Por qué esta ruta no le llega al conductor (null = sí le llega)
+            const problema = problemaDeEntrega(ruta);
             return (
               <Table.Tr key={ruta.id}>
-                <Table.Td>{ruta.nombre}</Table.Td>
-                <Table.Td>{placaBus(ruta.busId)}</Table.Td>
-                <Table.Td>{etiquetaTurno(ruta.turno)}</Table.Td>
+                <Table.Td>
+                  <Group gap={6} wrap="nowrap">
+                    <Text size="sm">{ruta.nombre}</Text>
+                    {/* El aviso va pegado al NOMBRE y no en una columna al
+                        final: es lo primero que el ojo busca al recorrer la
+                        tabla, y este problema hace que la ruta no exista para
+                        quien tiene que manejarla. */}
+                    {problema && (
+                      <Tooltip label={problema} multiline w={280} withArrow>
+                        <Badge color="red" variant="light" size="sm" style={{ cursor: "help" }}>
+                          No le llega al conductor
+                        </Badge>
+                      </Tooltip>
+                    )}
+                  </Group>
+                </Table.Td>
+                <Table.Td>
+                  {todosLosBusesPorId.get(ruta.busId)?.placa ?? placaBus(ruta.busId)}
+                </Table.Td>
+                <Table.Td>
+                  {etiquetaTurno(ruta.turno)}
+                  {ruta.horaSalida && (
+                    <Text size="xs" c="dimmed">
+                      Sale {ruta.horaSalida}
+                    </Text>
+                  )}
+                </Table.Td>
                 <Table.Td>
                   <Badge variant="light">{ruta.escuelaIds?.length ?? 0}</Badge>
                 </Table.Td>
@@ -330,17 +504,25 @@ export default function RutasScreen() {
               </Table.Tr>
             );
           })}
-          {rutas.length === 0 && (
+          {filtradas.length === 0 && (
             <Table.Tr>
               <Table.Td colSpan={8}>
-                <Text c="dimmed" ta="center">
-                  Todavía no hay rutas registradas.
+                <Text c="dimmed" ta="center" py="lg" size="sm">
+                  {rutas.length === 0
+                    ? "Todavía no hay rutas registradas."
+                    : "Ninguna ruta coincide con los filtros."}
                 </Text>
               </Table.Td>
             </Table.Tr>
           )}
         </Table.Tbody>
       </Table>
+
+      <PiePaginacion
+        pagina={pag.pagina}
+        totalPaginas={pag.totalPaginas}
+        onPagina={pag.setPagina}
+      />
 
       {/* ---------- Borrar ruta: confirmación en dos pasos ---------- */}
       <Modal

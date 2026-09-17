@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { Button, Center, Loader, Stack, Text, Title } from "@mantine/core";
+import { Button, Center, Stack, Text, Title } from "@mantine/core";
 import { useAuth } from "./context/AuthContext";
 import LoginScreen from "./screens/LoginScreen";
 import AppLayout from "./components/AppLayout";
@@ -16,9 +16,13 @@ import SolicitudesScreen from "./screens/SolicitudesScreen";
 import CanalesScreen from "./screens/CanalesScreen";
 import HistorialScreen from "./screens/HistorialScreen";
 import SupervisionScreen from "./screens/SupervisionScreen";
+import SuplenciasScreen from "./screens/SuplenciasScreen";
 import ReportesScreen from "./screens/ReportesScreen";
+import AuditoriaScreen from "./screens/AuditoriaScreen";
+import RespaldoScreen from "./screens/RespaldoScreen";
 import MigracionScreen from "./screens/MigracionScreen";
 import DatosPruebaScreen from "./screens/DatosPruebaScreen";
+import CargandoBus from "./components/CargandoBus";
 
 function AccesoDenegado() {
   const { logout } = useAuth();
@@ -44,7 +48,7 @@ function App() {
   if (cargando) {
     return (
       <Center mih="100vh">
-        <Loader />
+        <CargandoBus texto="Entrando…" />
       </Center>
     );
   }
@@ -84,8 +88,11 @@ function App() {
         <Route path="solicitudes" element={<SolicitudesScreen />} />
         <Route path="canales" element={<CanalesScreen />} />
         <Route path="supervision" element={<SupervisionScreen />} />
+        <Route path="suplencias" element={<SuplenciasScreen />} />
         <Route path="reportes" element={<ReportesScreen />} />
         <Route path="historial" element={<HistorialScreen />} />
+        <Route path="auditoria" element={<AuditoriaScreen />} />
+        <Route path="respaldo" element={<RespaldoScreen />} />
         <Route path="migracion" element={<MigracionScreen />} />
         <Route path="datos-prueba" element={<DatosPruebaScreen />} />
       </Route>

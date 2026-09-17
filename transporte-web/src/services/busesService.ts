@@ -1,14 +1,19 @@
 import {
-  addDoc,
   collection,
   doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
-  updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { auditar, compararCampos } from "./auditoriaService";
 import type { Bus } from "../types/models";
+
+// Quién maneja una unidad decide qué niños puede ver ese conductor en su app,
+// así que dar de alta, cambiar de conductor o apagar una unidad va siempre con
+// su registro de auditoría (ver auditoriaService.ts).
 
 // --- Lista todos los buses, ordenados por placa ---
 export async function listarBuses(): Promise<Bus[]> {
@@ -25,7 +30,11 @@ export async function crearBus(datos: {
   conductorId: string;
   foto?: string;
 }): Promise<void> {
-  await addDoc(collection(db, "buses"), { ...datos, activo: true });
+  const lote = writeBatch(db);
+  const ref = doc(collection(db, "buses"));
+  const auditoriaId = auditar(lote, "buses", "crear", [ref.id], `Alta de la unidad ${datos.placa}`);
+  lote.set(ref, { ...datos, activo: true, auditoriaId });
+  await lote.commit();
 }
 
 // --- Actualiza un bus existente ---
@@ -33,10 +42,24 @@ export async function actualizarBus(
   id: string,
   datos: { placa: string; capacidad: number; conductorId: string; foto?: string }
 ): Promise<void> {
-  await updateDoc(doc(db, "buses", id), datos);
+  const previo = await getDoc(doc(db, "buses", id));
+  const cambios = compararCampos(previo.data() ?? {}, { ...datos }, ["placa", "conductorId", "capacidad"]);
+  const lote = writeBatch(db);
+  const auditoriaId = auditar(lote, "buses", "editar", [id], `Editó la unidad ${datos.placa}`, cambios);
+  lote.update(doc(db, "buses", id), { ...datos, auditoriaId });
+  await lote.commit();
 }
 
 // --- Activa o desactiva un bus ---
 export async function cambiarActivoBus(id: string, activo: boolean): Promise<void> {
-  await updateDoc(doc(db, "buses", id), { activo });
+  const lote = writeBatch(db);
+  const auditoriaId = auditar(
+    lote,
+    "buses",
+    activo ? "activar" : "desactivar",
+    [id],
+    activo ? "Unidad reactivada" : "Unidad desactivada"
+  );
+  lote.update(doc(db, "buses", id), { activo, auditoriaId });
+  await lote.commit();
 }

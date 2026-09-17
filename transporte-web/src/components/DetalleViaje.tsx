@@ -15,12 +15,14 @@ import {
 } from "@mantine/core";
 import { IconAlertTriangle, IconArrowDown, IconArrowUp } from "@tabler/icons-react";
 import { escucharRegistrosDeViaje } from "../services/supervisionService";
-import type { Escuela, Nino, Punto, Registro, Ruta, Viaje } from "../types/models";
+import { escucharRecorrido } from "../services/recorridosService";
+import MapaRecorrido from "./MapaRecorrido";
+import type { Escuela, Nino, Punto, Recorrido, Registro, Ruta, Viaje } from "../types/models";
 
-// Detalle de UN viaje: resumen de arriba (horas, conteos) y la línea de tiempo
-// de todo lo que pasó, con la hora exacta de cada subida y bajada. Sirve igual
-// para un viaje en curso (los eventos van apareciendo solos, porque escucha en
-// vivo) y para uno ya terminado.
+// Detalle de UN viaje: resumen de arriba (horas, conteos), el recorrido que hizo
+// el bus y la línea de tiempo de todo lo que pasó, con la hora exacta de cada
+// subida y bajada. Sirve igual para un viaje en curso (los eventos y el camino
+// van apareciendo solos, porque escucha en vivo) y para uno ya terminado.
 
 // Hora "H:mm" de un registro
 function hora(momento: { toDate: () => Date }): string {
@@ -55,11 +57,14 @@ export default function DetalleViaje({
   busPlaca,
 }: Props) {
   const [registros, setRegistros] = useState<Registro[] | null>(null);
+  // undefined = todavía cargando; null = el viaje no tiene recorrido guardado
+  const [recorrido, setRecorrido] = useState<Recorrido | null | undefined>(undefined);
 
   // El componente se monta con key={viaje.id} desde la pantalla, así que al
   // elegir otro viaje se crea una instancia nueva y el estado arranca limpio
   // (no hace falta resetearlo acá dentro).
   useEffect(() => escucharRegistrosDeViaje(viaje.id, setRegistros), [viaje.id]);
+  useEffect(() => escucharRecorrido(viaje.id, setRecorrido), [viaje.id]);
 
   // Estado actual de cada niño según su último registro (misma regla que usan
   // la app del conductor y la del padre: el estado se DERIVA, no se guarda)
@@ -179,6 +184,32 @@ export default function DetalleViaje({
             <b>{resumen.pendientes}</b> sin recoger
           </Text>
         </Group>
+      </Paper>
+
+      {/* El camino que hizo el bus (un punto por minuto): por dónde pasó y a
+          qué hora, para poder contestar un reclamo días después */}
+      <Paper withBorder p="sm">
+        <Group justify="space-between" mb={6}>
+          <Text size="sm" fw={500}>
+            Recorrido realizado
+          </Text>
+          {recorrido && recorrido.puntos.length > 0 && (
+            <Text size="xs" c="dimmed">
+              {recorrido.puntos.length} puntos · uno por minuto
+            </Text>
+          )}
+        </Group>
+        {recorrido === undefined ? (
+          <Loader size="sm" />
+        ) : !recorrido || recorrido.puntos.length < 2 ? (
+          <Text c="dimmed" size="sm">
+            {viaje.estado === "en_curso"
+              ? "Todavía no hay puntos suficientes: se guarda uno por minuto mientras el bus avanza."
+              : "Este viaje no tiene recorrido guardado (se empezó a guardar con la versión nueva de la app)."}
+          </Text>
+        ) : (
+          <MapaRecorrido puntos={recorrido.puntos} />
+        )}
       </Paper>
 
       {/* Línea de tiempo con la hora exacta de cada evento */}

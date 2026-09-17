@@ -1,11 +1,11 @@
 import { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Text, useTheme } from 'react-native-paper';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import PantallaBase from '@/components/PantallaBase';
+import PastillaEstado from '@/components/PastillaEstado';
 import MapaBusEnVivo, { CENTRO_LA_CEIBA, type EstadoMapa } from '@/components/MapaBusEnVivo';
 import { ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
 
@@ -14,7 +14,6 @@ import { ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
 // en el componente MapaBusEnVivo, que esta pantalla comparte con el inicio.
 export default function MapaEnVivoScreen() {
   const router = useRouter();
-  const tema = useTheme();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     viajeId: string;
@@ -49,26 +48,14 @@ export default function MapaEnVivoScreen() {
     >
       <View style={styles.contenido}>
         <View style={styles.filaEstado}>
-          <View
-            style={[
-              styles.pastilla,
-              {
-                backgroundColor: senal.vivo ? tema.colors.primary : tema.colors.surfaceVariant,
-              },
-            ]}
-          >
-            <MaterialCommunityIcons
-              name={senal.icono}
-              size={15}
-              color={senal.vivo ? tema.colors.onPrimary : tema.colors.onSurfaceVariant}
-            />
-            <Text
-              variant="labelMedium"
-              style={{ color: senal.vivo ? tema.colors.onPrimary : tema.colors.onSurfaceVariant }}
-            >
-              {senal.texto}
-            </Text>
-          </View>
+          {/* La señal va en CIAN, el color de los datos de máquina, y late
+              solo mientras el bus transmite de verdad */}
+          <PastillaEstado
+            texto={senal.texto}
+            tono={senal.vivo ? 'dato' : 'espera'}
+            icono={senal.vivo ? undefined : senal.icono}
+            pulso={senal.vivo}
+          />
         </View>
 
         <MapaBusEnVivo
@@ -91,7 +78,7 @@ export default function MapaEnVivoScreen() {
           ]}
         >
           🏠 {params.paradaNombre || 'Parada'} · 🚌 el bus se actualiza cada ~15-20 s · la línea
-          coral sigue las calles
+          azul sigue las calles
         </Text>
       </View>
     </PantallaBase>

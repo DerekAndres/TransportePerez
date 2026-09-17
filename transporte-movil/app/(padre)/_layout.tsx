@@ -4,10 +4,12 @@ import { ActivityIndicator } from 'react-native-paper';
 import { Redirect, Stack } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
+import { TRANSICION_APILADA, TRANSICION_SECCION } from '@/constants/navegacion';
 import {
   registrarTokenPush,
   reintentarAvisosPendientes,
 } from '@/services/notificacionesService';
+import CargandoBus from '@/components/CargandoBus';
 
 // Layout protegido: solo un padre logueado puede ver las pantallas de este grupo.
 //
@@ -33,7 +35,7 @@ export default function PadreLayout() {
   if (cargando) {
     return (
       <View style={styles.centrado}>
-        <ActivityIndicator size="large" />
+        <CargandoBus />
       </View>
     );
   }
@@ -51,10 +53,17 @@ export default function PadreLayout() {
     return <Redirect href="/" />;
   }
 
-  // `animation`: las pantallas entran deslizándose desde la derecha y vuelven
-  // igual. Es la transición que el usuario espera de una app nativa y hace que
-  // navegar se sienta continuo en vez de un corte seco entre pantallas.
-  return <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }} />;
+  // Por defecto, la transición APILADA; las pantallas de sección (las de
+  // la barra de abajo) se cruzan con un fundido. Ver constants/navegacion.ts
+  return (
+    <Stack screenOptions={{ headerShown: false, ...TRANSICION_APILADA }}>
+      <Stack.Screen name="hijos" options={TRANSICION_SECCION} />
+      <Stack.Screen name="mensajes" options={TRANSICION_SECCION} />
+      <Stack.Screen name="canales" options={TRANSICION_SECCION} />
+      <Stack.Screen name="solicitudes" options={TRANSICION_SECCION} />
+      <Stack.Screen name="configuracion" options={TRANSICION_SECCION} />
+    </Stack>
+  );
 }
 
 const styles = StyleSheet.create({

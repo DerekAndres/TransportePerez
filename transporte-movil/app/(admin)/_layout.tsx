@@ -4,10 +4,12 @@ import { ActivityIndicator } from 'react-native-paper';
 import { Redirect, Stack } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
+import { TRANSICION_APILADA, TRANSICION_SECCION } from '@/constants/navegacion';
 import {
   registrarTokenPush,
   reintentarAvisosPendientes,
 } from '@/services/notificacionesService';
+import CargandoBus from '@/components/CargandoBus';
 
 // Layout protegido del ADMIN en la app móvil.
 //
@@ -33,7 +35,7 @@ export default function AdminLayout() {
   if (cargando) {
     return (
       <View style={styles.centrado}>
-        <ActivityIndicator size="large" />
+        <CargandoBus />
       </View>
     );
   }
@@ -50,7 +52,16 @@ export default function AdminLayout() {
     return <Redirect href="/" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }} />;
+  // Por defecto, la transición APILADA; las pantallas de sección (las de
+  // la barra de abajo) se cruzan con un fundido. Ver constants/navegacion.ts
+  return (
+    <Stack screenOptions={{ headerShown: false, ...TRANSICION_APILADA }}>
+      <Stack.Screen name="monitoreo" options={TRANSICION_SECCION} />
+      <Stack.Screen name="mensajes" options={TRANSICION_SECCION} />
+      <Stack.Screen name="avisos" options={TRANSICION_SECCION} />
+      <Stack.Screen name="configuracion" options={TRANSICION_SECCION} />
+    </Stack>
+  );
 }
 
 const styles = StyleSheet.create({

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Avatar,
@@ -7,8 +7,8 @@ import {
   Divider,
   FileInput,
   Group,
-  Loader,
   Modal,
+  Select,
   Stack,
   Switch,
   Table,
@@ -39,6 +39,19 @@ import {
   listarUsuarios,
 } from "../services/usuariosService";
 import { comprimirImagen } from "../utils/imagen";
+import {
+  AVISO_ACCESOS_PENDIENTES,
+  recalcularAccesosDespuesDeGuardar,
+} from "../services/accesoConductoresService";
+import CargandoBus from "../components/CargandoBus";
+import FiltrosCatalogo, { PiePaginacion } from "../components/FiltrosCatalogo";
+import { usePaginacion } from "../hooks/use-paginacion";
+import {
+  filtrarPorEstado,
+  filtrarTexto,
+  OPCIONES_ESTADO,
+  type FiltroEstado,
+} from "../utils/filtros";
 import type { Usuario } from "../types/models";
 
 // Inicial del nombre para el avatar cuando no hay foto
@@ -85,6 +98,20 @@ export default function GestionUsuariosScreen({ rol }: Props) {
   const [porEliminar, setPorEliminar] = useState<{ usuario: Usuario; hijos: number } | null>(null);
   const [motivo, setMotivo] = useState("");
   const [eliminando, setEliminando] = useState(false);
+
+  // --- Filtros de la tabla ---
+  const [busqueda, setBusqueda] = useState("");
+  const [estado, setEstado] = useState<FiltroEstado>("activos");
+
+  // Se busca por nombre, correo Y teléfono: el admin llega a una persona por
+  // cualquiera de los tres, y muchas veces lo único que tiene a mano es el
+  // número desde el que lo llamaron.
+  const filtrados = useMemo(() => {
+    const base = filtrarPorEstado(usuarios ?? [], estado, (u) => u.activo);
+    return filtrarTexto(base, busqueda, (u) => [u.nombre, u.email, u.telefono]);
+  }, [usuarios, busqueda, estado]);
+
+  const pag = usePaginacion(filtrados);
 
   const form = useForm({
     initialValues: { nombre: "", telefono: "", email: "" },
@@ -171,9 +198,20 @@ export default function GestionUsuariosScreen({ rol }: Props) {
     }
   });
 
+  // Un conductor dado de baja deja de ver a los niños que llevaba (y uno
+  // reactivado los vuelve a ver): por eso, para conductores, se recalculan los
+  // accesos. Para un padre no cambia nada de eso.
+  const recalcularSiEsConductor = async (usuario: Usuario) => {
+    if (usuario.rol !== "conductor") return;
+    if (!(await recalcularAccesosDespuesDeGuardar())) {
+      notifications.show(AVISO_ACCESOS_PENDIENTES);
+    }
+  };
+
   const alternarActivo = async (usuario: Usuario) => {
     try {
       await cambiarActivoUsuario(usuario.id, !usuario.activo);
+      await recalcularSiEsConductor(usuario);
       cargar();
     } catch {
       notifications.show({ color: "red", message: "No se pudo cambiar el estado." });
@@ -213,6 +251,7 @@ export default function GestionUsuariosScreen({ rol }: Props) {
     setEliminando(true);
     try {
       await eliminarUsuario(porEliminar.usuario, motivo.trim());
+      await recalcularSiEsConductor(porEliminar.usuario);
       notifications.show({
         color: "green",
         message:
@@ -231,7 +270,7 @@ export default function GestionUsuariosScreen({ rol }: Props) {
   };
 
   if (!usuarios) {
-    return <Loader />;
+    return <CargandoBus texto={`Cargando ${textos.titulo.toLowerCase()}…`} />;
   }
 
   return (
@@ -242,6 +281,27 @@ export default function GestionUsuariosScreen({ rol }: Props) {
           {textos.nuevo}
         </Button>
       </Group>
+
+      <FiltrosCatalogo
+        busqueda={busqueda}
+        onBusqueda={setBusqueda}
+        placeholder="Nombre, correo o teléfono"
+        mostrados={filtrados.length}
+        total={usuarios.length}
+        onLimpiar={() => {
+          setBusqueda("");
+          setEstado("activos");
+        }}
+      >
+        <Select
+          label="Estado"
+          data={OPCIONES_ESTADO}
+          value={estado}
+          onChange={(v) => setEstado((v as FiltroEstado) ?? "activos")}
+          w={150}
+          allowDeselect={false}
+        />
+      </FiltrosCatalogo>
 
       <Table striped highlightOnHover>
         <Table.Thead>
@@ -255,7 +315,7 @@ export default function GestionUsuariosScreen({ rol }: Props) {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {usuarios.map((usuario) => (
+          {pag.visibles.map((usuario) => (
             <Table.Tr key={usuario.id}>
               <Table.Td>
                 <Group gap="sm" wrap="nowrap">
@@ -298,17 +358,25 @@ export default function GestionUsuariosScreen({ rol }: Props) {
               </Table.Td>
             </Table.Tr>
           ))}
-          {usuarios.length === 0 && (
+          {filtrados.length === 0 && (
             <Table.Tr>
               <Table.Td colSpan={6}>
-                <Text c="dimmed" ta="center">
-                  {textos.vacio}
+                <Text c="dimmed" ta="center" py="lg" size="sm">
+                  {usuarios.length === 0
+                    ? textos.vacio
+                    : "Nadie coincide con la búsqueda."}
                 </Text>
               </Table.Td>
             </Table.Tr>
           )}
         </Table.Tbody>
       </Table>
+
+      <PiePaginacion
+        pagina={pag.pagina}
+        totalPaginas={pag.totalPaginas}
+        onPagina={pag.setPagina}
+      />
 
       <Modal opened={modalAbierto} onClose={close} title={editando ? textos.editar : textos.nuevo}>
         <form onSubmit={guardar}>

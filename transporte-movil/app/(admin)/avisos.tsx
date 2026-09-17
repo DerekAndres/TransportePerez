@@ -1,19 +1,23 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { ActivityIndicator, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Timestamp } from 'firebase/firestore';
 
 import { useAuth } from '@/context/AuthContext';
 import PantallaBase from '@/components/PantallaBase';
 import Tarjeta from '@/components/Tarjeta';
 import TarjetaAviso from '@/components/TarjetaAviso';
 import ChipFiltro from '@/components/ChipFiltro';
+import Campo from '@/components/Campo';
 import BotonPrincipal from '@/components/BotonPrincipal';
 import TituloSeccion from '@/components/TituloSeccion';
+import EstadoVacio from '@/components/EstadoVacio';
+import AparicionSuave from '@/components/AparicionSuave';
+import CargandoBus from '@/components/CargandoBus';
 import { escucharAvisos, listarCanales, publicarAviso } from '@/services/canalesService';
 import { notificarAvisoNuevo } from '@/services/notificacionesService';
-import { ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
+import { ESPACIO, estilosBase } from '@/constants/estilos';
 import type { Aviso, Canal } from '@/types/models';
 
 // ============================================
@@ -23,11 +27,24 @@ import type { Aviso, Canal } from '@/types/models';
 // en el panel web, acá solo se publica en los que ya existen — que es lo que
 // hace falta cuando pasa algo y el admin no está frente a la computadora.
 //
-// Debajo del formulario se ven los avisos ya publicados en ese canal, en vivo,
-// para no repetir uno que ya se mandó.
+// LO QUE SE AGREGÓ AL DISEÑO:
+//
+// 1. LA VISTA PREVIA. Mientras escribe, el admin ve la tarjeta EXACTA que le va
+//    a aparecer al padre en su inicio, armada con el mismo componente
+//    (TarjetaAviso). Un aviso se publica una sola vez y les llega al teléfono a
+//    decenas de familias: poder verlo antes es la diferencia entre corregir una
+//    palabra y mandar un comunicado con un error a toda la escuela.
+// 2. SE DICE A QUIÉN LE LLEGA, con el nombre de la escuela, antes de publicar.
+// 3. EL CONTADOR DE CARACTERES aparece recién cuando el texto se hace largo:
+//    un aviso larguísimo llega recortado en la notificación del teléfono.
+// 4. La confirmación dejó de ser un renglón verde suelto: es una tarjeta con su
+//    ícono, del mismo tono "cumplido" que usa toda la app.
+
+// A partir de acá se avisa que el texto es largo (la notificación lo recorta)
+const LARGO_COMODO = 220;
+
 export default function AvisosAdminScreen() {
   const { usuario } = useAuth();
-  const router = useRouter();
   const tema = useTheme();
 
   const [canales, setCanales] = useState<Canal[] | null>(null);
@@ -99,38 +116,26 @@ export default function AvisosAdminScreen() {
   };
 
   const canalElegido = canales?.find((c) => c.id === canalId);
+  const escrito = texto.trim();
 
   if (canales === null) {
     return (
-      <PantallaBase titulo="Publicar aviso" alVolver={() => router.back()} scroll={false}>
+      <PantallaBase titulo="Publicar aviso" scroll={false}>
         <View style={estilosBase.centrado}>
-          <ActivityIndicator size="large" />
+          <CargandoBus texto="Cargando los canales…" />
         </View>
       </PantallaBase>
     );
   }
 
   return (
-    <PantallaBase
-      titulo="Publicar aviso"
-      subtitulo={canalElegido?.nombre}
-      alVolver={() => router.back()}
-    >
+    <PantallaBase titulo="Publicar aviso" subtitulo={canalElegido?.nombre}>
       {canales.length === 0 ? (
-        <Tarjeta>
-          <View style={styles.filaSimple}>
-            <View style={[styles.circulo, { backgroundColor: tema.colors.surfaceVariant }]}>
-              <MaterialCommunityIcons
-                name="bullhorn-outline"
-                size={20}
-                color={tema.colors.onSurfaceVariant}
-              />
-            </View>
-            <Text style={[estilosBase.tenue, styles.texto]}>
-              Todavía no hay canales. Se crean desde el panel web, uno por escuela.
-            </Text>
-          </View>
-        </Tarjeta>
+        <EstadoVacio
+          icono="bullhorn-outline"
+          titulo="Todavía no hay canales"
+          texto="Se crean desde el panel web, uno por escuela. Después podés publicar desde acá."
+        />
       ) : (
         <>
           {/* Con más de una escuela, se elige a cuál va */}
@@ -147,13 +152,20 @@ export default function AvisosAdminScreen() {
 
           <Tarjeta>
             <Text variant="titleSmall">¿Qué querés avisar?</Text>
-            <Text variant="bodySmall" style={estilosBase.tenue}>
-              Lo van a ver en el inicio de la app todos los padres con un hijo en{' '}
-              {canalElegido?.nombre ?? 'la escuela'}.
-            </Text>
+            {/* A quién le llega, dicho antes de escribir y con el nombre real */}
+            <View style={styles.filaDestino}>
+              <MaterialCommunityIcons
+                name="account-group"
+                size={16}
+                color={tema.colors.onSurfaceVariant}
+              />
+              <Text variant="bodySmall" style={[estilosBase.tenue, styles.textoFlexible]}>
+                Lo van a ver en el inicio de la app todos los padres con un hijo en{' '}
+                {canalElegido?.nombre ?? 'la escuela'}.
+              </Text>
+            </View>
 
-            <TextInput
-              mode="outlined"
+            <Campo
               placeholder="Ej: Mañana no hay clases por reunión de maestros."
               value={texto}
               onChangeText={(t) => {
@@ -163,19 +175,21 @@ export default function AvisosAdminScreen() {
               multiline
               numberOfLines={5}
               style={styles.campo}
-              outlineStyle={styles.campoRedondo}
             />
 
-            <HelperText type="error" visible={!!error}>
-              {error}
-            </HelperText>
-            {!!exito && (
-              <View style={styles.filaExito}>
-                <MaterialCommunityIcons name="check-circle" size={16} color={tema.colors.secondary} />
-                <Text variant="bodySmall" style={{ color: tema.colors.secondary }}>
-                  {exito}
-                </Text>
-              </View>
+            {/* El contador aparece recién cuando el texto se hace largo: si
+                estuviera siempre, parecería un límite que no existe */}
+            {escrito.length > LARGO_COMODO && (
+              <Text variant="labelSmall" style={[estilosBase.tenue, styles.contador]}>
+                {escrito.length} caracteres · en la notificación del teléfono se va a ver
+                recortado
+              </Text>
+            )}
+
+            {!!error && (
+              <Text variant="bodySmall" style={{ color: tema.colors.error }}>
+                {error}
+              </Text>
             )}
 
             <BotonPrincipal
@@ -183,21 +197,64 @@ export default function AvisosAdminScreen() {
               icono="send"
               onPress={publicar}
               cargando={publicando}
-              deshabilitado={publicando || !texto.trim()}
+              deshabilitado={publicando || !escrito}
             />
           </Tarjeta>
 
-          <TituloSeccion titulo="Publicados en este canal" />
-          {avisos.length === 0 ? (
+          {/* Confirmación de lo último publicado */}
+          {!!exito && (
             <Tarjeta>
-              <Text style={estilosBase.tenue}>Todavía no publicaste nada en este canal.</Text>
+              <View style={styles.filaExito}>
+                <MaterialCommunityIcons
+                  name="check-circle"
+                  size={20}
+                  color={tema.colors.secondary}
+                />
+                <Text variant="bodyMedium" style={[styles.textoFlexible, { color: tema.colors.secondary }]}>
+                  {exito}
+                </Text>
+              </View>
             </Tarjeta>
+          )}
+
+          {/* ============================================================
+              CÓMO LO VA A VER EL PADRE
+              ============================================================
+              La misma tarjeta que se dibuja en el inicio del padre, con el
+              texto que se está escribiendo. Solo aparece mientras hay algo
+              escrito: vacía no enseñaría nada. */}
+          {!!escrito && (
+            <>
+              <TituloSeccion titulo="Así lo van a ver" />
+              <TarjetaAviso
+                aviso={{
+                  id: 'vista-previa',
+                  canalId: canalId ?? '',
+                  texto: escrito,
+                  de: usuario?.id ?? '',
+                  hora: Timestamp.now(),
+                }}
+                canalNombre={canalElegido?.nombre}
+              />
+            </>
+          )}
+
+          <TituloSeccion
+            titulo="Publicados en este canal"
+            detalle={avisos.length > 0 ? `${avisos.length}` : undefined}
+          />
+          {avisos.length === 0 ? (
+            <EstadoVacio
+              icono="text-box-outline"
+              titulo="Todavía no publicaste nada acá"
+              texto="Lo que publiques va a quedar listado debajo, del más nuevo al más viejo."
+            />
           ) : (
-            avisos
-              .slice(0, 10)
-              .map((a) => (
-                <TarjetaAviso key={a.id} aviso={a} canalNombre={canalElegido?.nombre} lineas={5} />
-              ))
+            avisos.slice(0, 10).map((a, indice) => (
+              <AparicionSuave key={a.id} indice={indice}>
+                <TarjetaAviso aviso={a} canalNombre={canalElegido?.nombre} lineas={5} />
+              </AparicionSuave>
+            ))
           )}
         </>
       )}
@@ -206,10 +263,9 @@ export default function AvisosAdminScreen() {
 }
 
 const styles = StyleSheet.create({
-  filaSimple: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno },
-  circulo: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  texto: { flex: 1 },
+  filaDestino: { flexDirection: 'row', alignItems: 'flex-start', gap: ESPACIO.minimo },
+  textoFlexible: { flex: 1 },
   campo: { maxHeight: 180 },
-  campoRedondo: { borderRadius: RADIO.control },
-  filaExito: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  contador: { textAlign: 'right' },
+  filaExito: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno },
 });

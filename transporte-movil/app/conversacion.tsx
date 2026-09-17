@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, View } from 'react-native';
 import {
-  ActivityIndicator,
   Text,
   TextInput,
   TouchableRipple,
@@ -22,8 +21,10 @@ import {
 } from '@/services/mensajesService';
 import { notificarMensajeNuevo } from '@/services/notificacionesService';
 import { ESPACIO, RADIO, estilosBase, fondoTarjeta } from '@/constants/estilos';
+import { fondoPie } from '@/constants/tema';
 import { horaCorta } from '@/utils/tiempo';
 import type { Mensaje } from '@/types/models';
+import CargandoBus from '@/components/CargandoBus';
 
 // Pantalla de chat, compartida por padre y conductor (el chat es igual para
 // ambos: solo cambia con quién se habla, que llega por parámetros). Vive en la
@@ -128,7 +129,7 @@ export default function ConversacionScreen() {
       <View style={[estilosBase.pantalla, { paddingBottom: altoTeclado }]}>
         {!mensajes ? (
           <View style={estilosBase.centrado}>
-            <ActivityIndicator size="large" />
+            <CargandoBus texto="Cargando los mensajes…" />
           </View>
         ) : (
           <ScrollView
@@ -195,7 +196,9 @@ export default function ConversacionScreen() {
           style={[
             styles.barraEnvio,
             {
-              backgroundColor: tema.colors.background,
+              // El último tono del degradado del fondo, para que la barra
+              // de escribir no dibuje una costura contra la pantalla
+              backgroundColor: fondoPie(),
               borderTopColor: tema.colors.outlineVariant,
               paddingBottom: altoTeclado > 0 ? ESPACIO.interno : insets.bottom + ESPACIO.interno,
             },

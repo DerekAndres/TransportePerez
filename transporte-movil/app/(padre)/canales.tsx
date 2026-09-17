@@ -1,40 +1,32 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { ActivityIndicator, Text, useTheme } from 'react-native-paper';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { useAuth } from '@/context/AuthContext';
 import PantallaBase from '@/components/PantallaBase';
-import Tarjeta from '@/components/Tarjeta';
-import TarjetaAviso from '@/components/TarjetaAviso';
-import ChipFiltro from '@/components/ChipFiltro';
+import ListaAvisos from '@/components/ListaAvisos';
+import CargandoBus from '@/components/CargandoBus';
 import { escucharAvisosDeCanales, listarCanalesDeEscuelas } from '@/services/canalesService';
 import { listarHijos } from '@/services/padreService';
 import { estilosBase } from '@/constants/estilos';
 import type { Aviso, Canal } from '@/types/models';
 
 // ============================================
-// AVISOS (pantalla completa)
+// AVISOS DEL PADRE
 // ============================================
-// Los comunicados de la administración para las escuelas de los hijos, del más
+// Los comunicados de la administración para las escuelas de sus hijos, del más
 // nuevo al más viejo. El padre NO se inscribe a nada: recibe el canal de la
 // escuela de cada hijo, y si un hijo cambia de escuela entra y sale del canal
 // solo.
 //
 // Se muestran los AVISOS, no los canales: entrar a "Avisos" y encontrar una
-// lista de canales que hay que abrir uno por uno agrega un paso para nada.
-// Cuando hay más de una escuela, las pastillas de arriba filtran por canal.
-
-// Valor del filtro cuando no se filtra por ningún canal en particular
-const TODOS = 'todos';
-
+// lista de canales que hay que abrir uno por uno agrega un paso para nada. La
+// lista (agrupada por fecha, con el contador de lo nuevo) es la misma que ve el
+// conductor — vive en components/ListaAvisos.tsx.
 export default function CanalesScreen() {
   const { usuario } = useAuth();
-  const tema = useTheme();
 
   const [canales, setCanales] = useState<Canal[] | null>(null);
   const [avisos, setAvisos] = useState<Aviso[]>([]);
-  const [filtro, setFiltro] = useState<string>(TODOS);
 
   useEffect(() => {
     if (!usuario) return;
@@ -57,29 +49,23 @@ export default function CanalesScreen() {
     };
   }, [usuario]);
 
-  // Avisos de todos sus canales, en vivo
+  // Avisos de todos sus canales, en vivo. La clave es una cadena y no el
+  // arreglo: así el efecto se rehace cuando cambian los canales DE VERDAD y no
+  // en cada render.
   const clavesCanales = (canales ?? []).map((c) => c.id).join(',');
-  useEffect(() => {
-    const ids = clavesCanales ? clavesCanales.split(',') : [];
-    if (ids.length === 0) {
-      setAvisos([]);
-      return;
-    }
-    return escucharAvisosDeCanales(ids, setAvisos);
-  }, [clavesCanales]);
-
-  const nombrePorCanal = useMemo(
-    () => new Map((canales ?? []).map((c) => [c.id, c.nombre])),
-    [canales]
+  useEffect(
+    // Sin canales, el servicio ya devuelve la lista vacía y una baja que no
+    // hace nada, así que no hace falta el caso especial acá. Además evita tocar
+    // el estado dentro del cuerpo del efecto, que provoca renders en cascada.
+    () => escucharAvisosDeCanales(clavesCanales ? clavesCanales.split(',') : [], setAvisos),
+    [clavesCanales]
   );
-
-  const visibles = filtro === TODOS ? avisos : avisos.filter((a) => a.canalId === filtro);
 
   if (canales === null) {
     return (
       <PantallaBase titulo="Avisos" scroll={false}>
         <View style={estilosBase.centrado}>
-          <ActivityIndicator size="large" />
+          <CargandoBus texto="Cargando los avisos…" />
         </View>
       </PantallaBase>
     );
@@ -87,38 +73,18 @@ export default function CanalesScreen() {
 
   return (
     <PantallaBase titulo="Avisos" subtitulo="Comunicados de la administración">
-      {/* Con dos o más escuelas, se puede mirar una sola */}
-      {canales.length > 1 && (
-        <ChipFiltro
-          opciones={[
-            { id: TODOS, etiqueta: 'Todos' },
-            ...canales.map((c) => ({ id: c.id, etiqueta: c.nombre })),
-          ]}
-          seleccionadaId={filtro}
-          onSeleccionar={setFiltro}
-        />
-      )}
-
-      {visibles.length === 0 && (
-        <Tarjeta>
-          <View style={estilosBase.filaEntre}>
-            <Text style={[estilosBase.tenue, { flex: 1 }]}>
-              {canales.length === 0
-                ? 'Todavía no hay canales de avisos para la escuela de tus hijos.'
-                : 'Todavía no hay avisos publicados.'}
-            </Text>
-            <MaterialCommunityIcons
-              name="bullhorn-outline"
-              size={22}
-              color={tema.colors.onSurfaceVariant}
-            />
-          </View>
-        </Tarjeta>
-      )}
-
-      {visibles.map((a) => (
-        <TarjetaAviso key={a.id} aviso={a} canalNombre={nombrePorCanal.get(a.canalId)} />
-      ))}
+      <ListaAvisos
+        canales={canales}
+        avisos={avisos}
+        tituloVacio={
+          canales.length === 0 ? 'Todavía no hay canal de avisos' : 'Todavía no hay avisos'
+        }
+        textoVacio={
+          canales.length === 0
+            ? 'Cuando la administración abra el canal de la escuela de tu hijo, los comunicados te aparecen acá.'
+            : 'Cuando la administración publique un comunicado de la escuela, te aparece acá y te llega al teléfono.'
+        }
+      />
     </PantallaBase>
   );
 }

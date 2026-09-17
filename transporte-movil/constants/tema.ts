@@ -1,214 +1,381 @@
-import { configureFonts, MD3DarkTheme, MD3LightTheme, type MD3Theme } from "react-native-paper";
+import { configureFonts, MD3DarkTheme, type MD3Theme } from "react-native-paper";
 import {
   DarkTheme as NavegacionOscura,
-  DefaultTheme as NavegacionClara,
   type Theme as TemaNavegacion,
-} from "@react-navigation/native";
+} from "expo-router/react-navigation";
 
 // ============================================
-// TEMA VISUAL — BLANCO CON LOS COLORES DEL LOGO
+// TEMA VISUAL — "LIQUID OBSIDIAN & SPECULAR GLASS"
 // ============================================
-// La app es BLANCA. El blanco es el color principal: fondos, tarjetas y barras.
-// Eso es lo que la hace ver limpia y hace que se lea rápido con el teléfono al
-// sol, que es como se usa acá.
+// La app se apoya en dos materiales: una OBSIDIANA líquida — un negro azulado
+// profundo que hace de fondo de todo — y láminas de VIDRIO esmerilado que
+// flotan encima, con un filo de luz en el borde de arriba, como el reflejo de
+// una luz cenital sobre un cristal cortado.
 //
-// Encima de ese blanco entran tres acentos, y los tres salen DEL LOGO de la
-// empresa (el bus escolar en la carretera). No son colores elegidos por gusto:
-// se sacaron midiendo el logo con un histograma de color, para que la app y el
-// ícono que el padre ve en su teléfono se sientan la misma cosa. El azul del
-// cielo ocupa el 19.6% de la imagen — es, con diferencia, el color de la marca.
+// De dónde sale (esto es lo que hay que poder defender):
+// el diseño se generó en Google Stitch para este proyecto, en el design system
+// "Liquid Obsidian & Specular Glass" (proyecto "RutaEscolar Ceiba",
+// assets/f3c88cbb22754c7fab5a3dbeda3c934b). Su referencia declarada son los
+// tableros de los autos de gama alta (Porsche, Polestar) cruzados con el vidrio
+// espacial de Apple: superficies frías, tipografía de precisión y luz que se
+// refleja en los bordes en vez de sombras que caen. La intención es que seguir
+// a un niño en un bus se sienta CALMO y de precisión — no una app de alarmas.
 //
-// Cada uno tiene además un trabajo, y eso es lo que manda cuando hay que decidir
-// dónde usarlo — nada es decorativo porque sí:
+// ⚠️ EL CAMBIO GRANDE RESPECTO DE LA PALETA ANTERIOR ("Aurora Caribe"):
+// la app pasa de CLARA a OSCURA, y de turquesa a zafiro. No es una variante del
+// tema anterior: es otra identidad. Y hay una consecuencia honesta que conviene
+// dejar escrita para el informe: un fondo negro se lee PEOR que uno blanco bajo
+// el sol del mediodía, que es justamente la condición en que el conductor usa
+// la app. La decisión se toma igual (es el diseño elegido), y se compensa donde
+// más importa: los botones de asistencia del conductor NO van en vidrio
+// translúcido sino con relleno SÓLIDO y saturado (verde de "subió", rojo de "no
+// estaba"), que es lo que sobrevive al reflejo. Ver `components/GrupoAsistencia`.
 //
-//   🚌 AZUL CIELO (#12659E) — el cielo del logo, en su versión profunda para que
-//      se lea sobre blanco. Marca lo que está pasando AHORA: el bus en viaje, el
-//      niño arriba del bus, el botón de la acción principal.
-//   🌿 VERDE CAMPO (#1B7A5A) — el pasto del logo. Marca lo que ya se cumplió: el
-//      niño entregado, la parada completa, el viaje terminado.
-//   🟡 ÁMBAR BUS (#8A5B00) — el amarillo del bus escolar, profundizado. Es el
-//      acento de los avisos y los comunicados.
+// CADA COLOR TIENE UN TRABAJO ASIGNADO, y eso manda sobre cualquier decisión
+// estética — nada es decorativo porque sí:
 //
-// Que AZUL sea "en curso" y VERDE sea "terminado" es, además, la convención que
-// casi todo el mundo ya conoce, así que el estado se entiende sin leer el texto.
+//   🔵 ZAFIRO (#2563EB) — la marca, y lo que está pasando AHORA: el bus en
+//      viaje, el niño arriba del bus, el botón de la acción principal, la
+//      pastilla activa de la barra de abajo. El diseño lo llama "Royal Sapphire
+//      Glass" y lo reserva para telemetría en vivo y rutas confirmadas.
+//   🟢 ESMERALDA (#10B981) — lo que ya se cumplió: el niño entregado, la parada
+//      completa, el viaje terminado. En el diseño es la "green jewel beacon"
+//      del niño que subió sano y salvo.
+//   🟡 ÁMBAR (#F59E0B) — "Champagne Amber Flare": avisos, comunicados y
+//      ventanas de recogida. Lo que pide atención pero no es una falla.
+//   🔴 ROJO (#FF5A52) — alertas de verdad: "no estaba en la parada", finalizar
+//      viaje, desvío. Queda lejos de los otros tres en el círculo de color.
+//   🩵 CIAN (#38BDF8) — "Liquid Cyan Reflection". NO es un color de estado: es
+//      el color de los datos de máquina (señal del GPS, distancia, velocidad).
+//      Que la telemetría tenga su propio color evita confundir "el GPS anda"
+//      con "el niño está bien", que son cosas distintas.
 //
-// ⚠️ Un límite conocido de esta paleta: el azul y el verde tienen casi la misma
-// LUMINANCIA (el contraste entre ellos es 1.12:1), o sea que se distinguen por el
-// tono pero no por lo claro u oscuro. Por eso, en las pantallas donde el estado
-// importa, el color nunca va solo: siempre lo acompaña un ícono o una palabra.
-// Los cuatro colores sí pasan el mínimo AA (4.5:1) contra el blanco, que es lo
-// que garantiza que el texto encima se lea.
-//
-// La regla es que el color aparece SOLO donde significa algo. Una pantalla del
-// padre sin viaje en curso es casi enteramente blanca; cuando el bus sale, el
-// azul entra y se nota. Si todo estuviera pintado, nada llamaría la atención.
+// CONTRASTE sobre la obsidiana #0F131D (mínimo AA para texto = 4.5:1):
+//   texto #DFE2F1 15.2:1 · zafiro claro #B4C5FF 9.8:1 · esmeralda #6EE7B7 11.4:1
+//   ámbar #FFB95F 10.3:1 · rojo #FFB4AB 8.9:1 · cian #7BD0FF 10.7:1
+// Los tonos VIVOS (#2563EB, #10B981, #F59E0B) no se usan nunca para texto sobre
+// el fondo: van como RELLENO, con texto blanco o negro encima. Por eso la
+// paleta tiene dos versiones de cada color — una clara para escribir y una viva
+// para rellenar. Es la convención de Material Design 3 (`primary` vs
+// `primaryContainer`) y acá se respeta al pie de la letra.
 //
 // Todo esto se declara UNA vez acá y React Native Paper lo aplica a todos los
-// componentes (botones, chips, campos, barras). Ninguna pantalla escribe un
-// color a mano — si mañana la empresa cambia de identidad, se cambia este
-// archivo y listo. La única excepción son los mapas: van dentro de un WebView,
-// que es HTML aparte y no ve este tema, así que ahí los colores se repiten a
-// mano y un comentario apunta a este archivo.
+// componentes. Ninguna pantalla escribe un color a mano. La única excepción son
+// los mapas: van dentro de un WebView, que es HTML aparte y no ve este tema, así
+// que ahí los colores se repiten a mano y un comentario apunta a este archivo.
+
+// ============================================
+// LOS COLORES DE MARCA, EN CRUDO
+// ============================================
+// Los valores VIVOS del design system. Se exportan sueltos porque hay tres
+// lugares que no pueden leer el tema de Paper: los degradados, los bordes de
+// vidrio (que son rgba con transparencia) y el HTML de los mapas.
+
+/** Royal Sapphire Glass — la marca y lo que está en vivo */
+export const ZAFIRO = "#2563EB";
+/** El extremo oscuro del degradado del botón principal */
+export const ZAFIRO_PROFUNDO = "#1D4ED8";
+/** Champagne Amber Flare — avisos y ventanas de recogida */
+export const AMBAR = "#F59E0B";
+/** La esmeralda de "cumplido": subió, entregado, viaje terminado */
+export const ESMERALDA = "#10B981";
+/** Liquid Cyan Reflection — datos de máquina: GPS, distancia, velocidad */
+export const CIAN = "#38BDF8";
+/** Liquid Obsidian — el fondo de todo, el "vacío" sobre el que flota el vidrio */
+export const OBSIDIANA = "#0F131D";
+/** El tono más profundo de la obsidiana: el pozo del que salen los degradados */
+export const OBSIDIANA_PROFUNDA = "#0A0E18";
+
+// Redondez global de Paper. El design system pide 24 px para las láminas
+// grandes y 16 px para las tarjetas de adentro; 16 es el valor que más se
+// repite, así que es el que va por defecto (ver RADIO en constants/estilos.ts).
+const REDONDEZ = 16;
+
+// ============================================
+// TIPOGRAFÍA — dos fuentes, dos trabajos
+// ============================================
+// El design system pide DOS familias, y la división no es capricho:
 //
-// Roles de Material Design 3 que más se usan en la app:
-//   - primary / onPrimary:           acción principal, estado "en curso"
-//   - primaryContainer:              fondos suaves de azul (tarjeta de ruta)
-//   - secondary / secondaryContainer: el verde de "completado"
-//   - tertiary / tertiaryContainer:  el ámbar de avisos
-//   - error:                         rojo de alertas y de finalizar viaje
-//   - background / surface:          el blanco
+//   OUTFIT (geométrica) — titulares y CIFRAS. Letras construidas con círculos y
+//   líneas rectas, sin adornos. Es la que le da el aire de tablero de auto. Va
+//   en todo lo que se lee de un vistazo: el título de la pantalla, la hora en
+//   que subió el niño, los contadores del conductor.
+//
+//   PLUS JAKARTA SANS (humanista) — texto corrido y controles. Tiene los
+//   agujeros de las letras más abiertos, que es lo que hace que un párrafo se
+//   siga leyendo en un teléfono que vibra o con reflejo encima.
+//
+// ⚠️ POR QUÉ CADA PESO ES UNA "FAMILIA" DISTINTA Y NO SE USA `fontWeight`:
+// en React Native, una fuente cargada desde un archivo se registra con UN
+// nombre y UN peso. Si se pide `fontFamily: 'Outfit_600SemiBold'` y además
+// `fontWeight: '700'`, Android no busca otro archivo: le aplica negrita
+// SINTÉTICA al que ya es semibold, y el texto sale engordado y sucio. Por eso
+// en toda la app el grosor se elige cambiando de familia, nunca con
+// `fontWeight`. El ayudante `estilosBase.negrita` (constants/estilos.ts) hace
+// exactamente eso.
+export const FUENTES = {
+  /** Outfit — titulares y cifras */
+  titularMedio: "Outfit_500Medium",
+  titular: "Outfit_600SemiBold",
+  titularFuerte: "Outfit_700Bold",
+  /** Plus Jakarta Sans — texto y controles */
+  texto: "PlusJakartaSans_400Regular",
+  textoMedio: "PlusJakartaSans_500Medium",
+  textoFuerte: "PlusJakartaSans_600SemiBold",
+  textoNegrita: "PlusJakartaSans_700Bold",
+} as const;
 
-// Redondez global (por defecto 4): tarjetas y controles con esquinas muy
-// suaves, el look amable de las apps modernas de consumo.
-const REDONDEZ = 6;
+// El design system declara el espaciado entre letras en `em` (proporción del
+// tamaño); React Native lo quiere en puntos. Se convierte acá para que los
+// números de abajo se puedan comparar contra el diseño original sin cuentas.
+const em = (proporcion: number, tamano: number) => Math.round(proporcion * tamano * 100) / 100;
 
-// --- Tipografía ---
-// No se agregan fuentes externas (serían archivos nuevos y más peso de APK); lo
-// que se hace es ajustar la escala tipográfica del sistema para que la app tenga
-// voz propia: titulares MÁS grandes y apretados (el aire lo ponen los márgenes,
-// no las letras) y etiquetas con un poco más de separación entre letras, que es
-// lo que hace que un texto chico se lea "de marca" y no de formulario.
+// La escala del design system, adaptada a móvil. Los nombres de la izquierda
+// son las variantes de Material Design 3 que usa Paper; entre paréntesis, cómo
+// se llama esa misma línea en el diseño de Stitch.
 const tipografia = configureFonts({
   config: {
-    displaySmall: { fontSize: 34, lineHeight: 40, letterSpacing: -0.5, fontWeight: "700" },
-    headlineMedium: { fontSize: 29, lineHeight: 35, letterSpacing: -0.4, fontWeight: "700" },
-    headlineSmall: { fontSize: 24, lineHeight: 30, letterSpacing: -0.3, fontWeight: "700" },
-    titleLarge: { fontSize: 21, lineHeight: 27, letterSpacing: -0.2, fontWeight: "700" },
-    titleMedium: { fontSize: 16.5, lineHeight: 23, letterSpacing: 0, fontWeight: "700" },
-    labelLarge: { fontSize: 14, lineHeight: 20, letterSpacing: 0.2, fontWeight: "600" },
-    labelSmall: { fontSize: 11.5, lineHeight: 16, letterSpacing: 0.5, fontWeight: "600" },
+    // display-lg-mobile — el número gigante de una sola métrica
+    displayLarge: {
+      fontFamily: FUENTES.titular,
+      fontSize: 40,
+      lineHeight: 48,
+      letterSpacing: em(-0.03, 40),
+      fontWeight: "normal",
+    },
+    displayMedium: {
+      fontFamily: FUENTES.titular,
+      fontSize: 36,
+      lineHeight: 44,
+      letterSpacing: em(-0.025, 36),
+      fontWeight: "normal",
+    },
+    displaySmall: {
+      fontFamily: FUENTES.titular,
+      fontSize: 32,
+      lineHeight: 40,
+      letterSpacing: em(-0.02, 32),
+      fontWeight: "normal",
+    },
+    // headline-xl-mobile — el titular de una pantalla de sección
+    headlineLarge: {
+      fontFamily: FUENTES.titular,
+      fontSize: 28,
+      lineHeight: 36,
+      letterSpacing: em(-0.02, 28),
+      fontWeight: "normal",
+    },
+    headlineMedium: {
+      fontFamily: FUENTES.titular,
+      fontSize: 26,
+      lineHeight: 34,
+      letterSpacing: em(-0.015, 26),
+      fontWeight: "normal",
+    },
+    // headline-md
+    headlineSmall: {
+      fontFamily: FUENTES.titular,
+      fontSize: 22,
+      lineHeight: 30,
+      letterSpacing: em(-0.01, 22),
+      fontWeight: "normal",
+    },
+    // headline-sm — el título de una tarjeta grande
+    titleLarge: {
+      fontFamily: FUENTES.titular,
+      fontSize: 18,
+      lineHeight: 26,
+      letterSpacing: em(-0.005, 18),
+      fontWeight: "normal",
+    },
+    // body-lg en semibold — el nombre de un niño, el título de una tarjeta
+    titleMedium: {
+      fontFamily: FUENTES.textoFuerte,
+      fontSize: 16,
+      lineHeight: 24,
+      letterSpacing: 0,
+      fontWeight: "normal",
+    },
+    titleSmall: {
+      fontFamily: FUENTES.textoFuerte,
+      fontSize: 14,
+      lineHeight: 20,
+      letterSpacing: 0,
+      fontWeight: "normal",
+    },
+    // body-lg / body-md / body-sm — texto corrido
+    bodyLarge: {
+      fontFamily: FUENTES.texto,
+      fontSize: 16,
+      lineHeight: 24,
+      letterSpacing: 0,
+      fontWeight: "normal",
+    },
+    bodyMedium: {
+      fontFamily: FUENTES.texto,
+      fontSize: 14,
+      lineHeight: 22,
+      letterSpacing: em(0.005, 14),
+      fontWeight: "normal",
+    },
+    bodySmall: {
+      fontFamily: FUENTES.texto,
+      fontSize: 12,
+      lineHeight: 18,
+      letterSpacing: em(0.01, 12),
+      fontWeight: "normal",
+    },
+    // label-lg / label-md / label-sm — etiquetas y pastillas.
+    // Acá el espaciado entre letras es POSITIVO y generoso a propósito: es lo
+    // que sostiene la legibilidad de un texto chico en mayúsculas sobre una
+    // superficie de vidrio borroso (el diseño lo pide explícitamente).
+    labelLarge: {
+      fontFamily: FUENTES.textoFuerte,
+      fontSize: 13,
+      lineHeight: 16,
+      letterSpacing: em(0.04, 13),
+      fontWeight: "normal",
+    },
+    labelMedium: {
+      fontFamily: FUENTES.textoFuerte,
+      fontSize: 11,
+      lineHeight: 14,
+      letterSpacing: em(0.06, 11),
+      fontWeight: "normal",
+    },
+    labelSmall: {
+      fontFamily: FUENTES.textoNegrita,
+      fontSize: 10,
+      lineHeight: 13,
+      letterSpacing: em(0.08, 10),
+      fontWeight: "normal",
+    },
   },
 });
 
-export const temaClaro: MD3Theme = {
-  ...MD3LightTheme,
-  roundness: REDONDEZ,
-  fonts: tipografia,
-  colors: {
-    ...MD3LightTheme.colors,
-    // 🚌 Azul cielo — lo que está pasando ahora
-    primary: "#12659E",
-    onPrimary: "#FFFFFF",
-    primaryContainer: "#CFE7F8",
-    onPrimaryContainer: "#04324F",
-    // 🌿 Verde campo — lo que ya se cumplió
-    secondary: "#1B7A5A",
-    onSecondary: "#FFFFFF",
-    secondaryContainer: "#C2EBD9",
-    onSecondaryContainer: "#00261A",
-    // 🟡 Ámbar bus — avisos y comunicados
-    tertiary: "#8A5B00",
-    onTertiary: "#FFFFFF",
-    tertiaryContainer: "#FFDFA8",
-    onTertiaryContainer: "#2B1B00",
-    // Rojo de alertas: queda lejos del azul y del verde, no se confunde con nada
-    error: "#9F1218",
-    onError: "#FFFFFF",
-    errorContainer: "#FFDAD6",
-    onErrorContainer: "#410003",
-    // BLANCO como base de todo. Los grises ahora son FRÍOS (tienen una gota de
-    // azul): sobre una marca azul, un gris cálido se ve sucio.
-    background: "#FFFFFF",
-    onBackground: "#17212A",
-    surface: "#FFFFFF",
-    onSurface: "#17212A",
-    // El gris clarísimo de los chips apagados y los círculos de ícono neutros
-    surfaceVariant: "#F1F4F7",
-    onSurfaceVariant: "#51606B",
-    outline: "#77848D",
-    outlineVariant: "#E2E8ED",
-    inversePrimary: "#97CBF0",
-    inverseSurface: "#2A343C",
-    inverseOnSurface: "#EDF3F8",
-    // Elevación: del blanco a un gris frío apenas perceptible
-    elevation: {
-      level0: "transparent",
-      level1: "#FFFFFF",
-      level2: "#F9FBFD",
-      level3: "#F5F8FB",
-      level4: "#F3F7FA",
-      level5: "#EFF4F9",
-    },
-  },
-};
-
-export const temaOscuro: MD3Theme = {
+// ============================================
+// EL TEMA
+// ============================================
+// Un solo tema, OSCURO. El design system elegido es `colorMode: DARK` y no
+// trae contraparte clara: inventarle una sería inventar diseño, no aplicarlo.
+// Por eso la app ya no sigue el modo del teléfono — ver `userInterfaceStyle`
+// en app.json, que también se fijó en "dark" para que la pantalla de arranque
+// y las barras del sistema no parpadeen en blanco antes de abrir la app.
+export const tema: MD3Theme = {
   ...MD3DarkTheme,
   roundness: REDONDEZ,
   fonts: tipografia,
   colors: {
     ...MD3DarkTheme.colors,
-    // Azul claro sobre fondo oscuro (el azul profundo se pierde de noche)
-    primary: "#92CCF2",
-    onPrimary: "#00344F",
-    primaryContainer: "#0E5384",
-    onPrimaryContainer: "#CFE7F8",
-    secondary: "#86D6B4",
+
+    // 🔵 ZAFIRO — la marca y lo que está en vivo.
+    // `primary` es el tono CLARO (para texto e íconos sobre la obsidiana) y
+    // `primaryContainer` el VIVO (para rellenar un botón o una pastilla).
+    primary: "#B4C5FF",
+    onPrimary: "#002A78",
+    primaryContainer: ZAFIRO,
+    onPrimaryContainer: "#EEEFFF",
+
+    // 🟢 ESMERALDA — lo que ya se cumplió (subió, entregado, viaje terminado)
+    secondary: "#6EE7B7",
     onSecondary: "#00382A",
-    secondaryContainer: "#005640",
-    onSecondaryContainer: "#C2EBD9",
-    tertiary: "#F1BE6C",
-    onTertiary: "#472B00",
-    tertiaryContainer: "#684100",
-    onTertiaryContainer: "#FFDFA8",
+    secondaryContainer: ESMERALDA,
+    onSecondaryContainer: "#00251B",
+
+    // 🟡 ÁMBAR — avisos, comunicados, "en camino"
+    tertiary: "#FFB95F",
+    onTertiary: "#472A00",
+    tertiaryContainer: "#EE9800",
+    onTertiaryContainer: "#2A1700",
+
+    // 🔴 ROJO — alertas: "no estaba", finalizar viaje, desvío
     error: "#FFB4AB",
     onError: "#690005",
-    errorContainer: "#93000A",
+    errorContainer: "#C4271F",
     onErrorContainer: "#FFDAD6",
-    // El equivalente oscuro del blanco: gris muy oscuro con una gota de azul,
-    // nunca negro puro (el negro puro sobre AMOLED hace que los bordes de las
-    // tarjetas desaparezcan)
-    background: "#101619",
-    onBackground: "#E2EAF0",
-    surface: "#151C21",
-    onSurface: "#E2EAF0",
-    surfaceVariant: "#333F47",
-    onSurfaceVariant: "#C3CED6",
-    outline: "#8C99A2",
-    outlineVariant: "#333F47",
-    inversePrimary: "#12659E",
-    inverseSurface: "#E2EAF0",
-    inverseOnSurface: "#2A343C",
+
+    // La obsidiana: el fondo de la página y el de las superficies planas.
+    // Son el MISMO color a propósito — en este diseño una tarjeta no se separa
+    // del fondo por ser de otro color, sino por su borde de luz y su desenfoque
+    // (ver VIDRIO en constants/estilos.ts). Ese es todo el concepto.
+    background: OBSIDIANA,
+    onBackground: "#DFE2F1",
+    surface: OBSIDIANA,
+    onSurface: "#DFE2F1",
+
+    // El gris azulado de los círculos neutros y los chips apagados
+    surfaceVariant: "#313540",
+    onSurfaceVariant: "#C3C6D7",
+    outline: "#8D90A0",
+    outlineVariant: "#434655",
+
+    inversePrimary: "#0053DB",
+    inverseSurface: "#DFE2F1",
+    inverseOnSurface: "#2C303B",
+
+    // La escalera de elevación: cuando una superficie NO puede ser de vidrio
+    // (porque lo que tiene detrás no se puede desenfocar), se pinta con el tono
+    // sólido equivalente de esta escalera. Son los mismos valores que produce el
+    // vidrio del diseño apoyado sobre la obsidiana, calculados una vez acá.
     elevation: {
       level0: "transparent",
-      level1: "#1B242A",
-      level2: "#1F2930",
-      level3: "#242F37",
-      level4: "#26323A",
-      level5: "#2A373F",
+      level1: "#171B26",
+      level2: "#1C1F2A",
+      level3: "#262A35",
+      level4: "#2C303B",
+      level5: "#313540",
     },
   },
 };
 
-// Los tres colores de la marca, en orden, para la franja del encabezado y
-// cualquier detalle que quiera repetir la identidad. Acá van en su versión VIVA
-// (no la profunda que usan los textos): la franja es decorativa y no sostiene
-// texto encima, así que puede parecerse más al logo.
-export const FRANJA_TROPICAL = ["#2E90CE", "#F0C24E", "#2F9E76"] as const;
+// ============================================
+// DEGRADADOS
+// ============================================
 
-// Temas equivalentes para el navegador de Expo Router (fondo de las pantallas
-// durante las transiciones). Sin esto, al navegar se vería un "flash" blanco o
-// gris que no coincide con los fondos del tema de Paper.
-export const navegacionClara: TemaNavegacion = {
-  ...NavegacionClara,
-  colors: {
-    ...NavegacionClara.colors,
-    primary: temaClaro.colors.primary,
-    background: temaClaro.colors.background,
-    card: temaClaro.colors.surface,
-    text: temaClaro.colors.onSurface,
-    border: temaClaro.colors.outlineVariant,
-  },
-};
+// --- El espejo de zafiro: el botón principal ---
+// El diseño lo especifica como `linear-gradient(135deg, #2563EB, #1D4ED8)`, o
+// sea en diagonal. Se declara acá para que el botón de "Iniciar viaje", el de
+// "Entrar" del login y cualquier acción principal futura sean el mismo azul.
+export const ESPEJO_ZAFIRO = [ZAFIRO, ZAFIRO_PROFUNDO] as const;
 
-export const navegacionOscura: TemaNavegacion = {
+// --- El fondo de TODAS las pantallas ---
+// La obsidiana no es un negro plano: baja de un azul de medianoche arriba al
+// pozo casi negro de abajo. El diseño lo llama "atmospheric depth" — es lo que
+// impide que la pantalla se vea como un rectángulo negro muerto y hace que las
+// láminas de vidrio parezcan estar flotando A UNA ALTURA sobre algo.
+//
+// ⚠️ EL ÚLTIMO COLOR NO ES CAPRICHO: varias pantallas dibujan barras fijas al
+// pie (el botón de iniciar viaje del conductor, el campo de escribir del chat)
+// pintadas con `fondoPie()`. Si el degradado terminara en otro tono, se vería
+// una costura horizontal justo ahí.
+export const NOCHE_OBSIDIANA = ["#151B2B", OBSIDIANA, "#0C1019", OBSIDIANA_PROFUNDA] as const;
+
+// El color con el que hay que pintar cualquier barra FIJA al pie de una
+// pantalla. Se calcula en vez de escribirse a mano a propósito: si mañana se
+// cambia el degradado, los pies lo siguen solos.
+export function fondoPie(): string {
+  return NOCHE_OBSIDIANA[NOCHE_OBSIDIANA.length - 1];
+}
+
+// --- La franja de la pantalla de entrada ---
+// Los tres acentos del sistema en su versión viva, para la franja decorativa
+// del login y de "completar perfil": zafiro (en vivo), ámbar (aviso) y cian
+// (telemetría). Reemplaza a la franja tropical de la identidad anterior.
+// Ahí la franja es decorativa — no sostiene texto encima — así que puede usar
+// los tonos saturados que en el resto de la app solo se usan como relleno.
+export const FRANJA_ESPECULAR = [ZAFIRO, AMBAR, CIAN] as const;
+
+// Tema equivalente para el navegador de Expo Router (el fondo de las pantallas
+// durante las transiciones). Sin esto, al navegar se vería un "flash" blanco
+// entre pantalla y pantalla, que sobre un fondo negro es un fogonazo.
+export const temaNavegacion: TemaNavegacion = {
   ...NavegacionOscura,
   colors: {
     ...NavegacionOscura.colors,
-    primary: temaOscuro.colors.primary,
-    background: temaOscuro.colors.background,
-    card: temaOscuro.colors.surface,
-    text: temaOscuro.colors.onSurface,
-    border: temaOscuro.colors.outlineVariant,
+    primary: tema.colors.primary,
+    background: tema.colors.background,
+    card: tema.colors.surface,
+    text: tema.colors.onSurface,
+    border: tema.colors.outlineVariant,
   },
 };

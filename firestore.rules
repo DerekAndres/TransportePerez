@@ -1,218 +1,458 @@
 rules_version = '2';
 
 // ============================================================================
-// REGLAS DE SEGURIDAD — Sistema Transporte Perez  (Fase 9 — versión final)
+// REGLAS DE SEGURIDAD — Sistema Transporte Perez  (versión 2 — endurecida)
 // ============================================================================
-// Basadas en los roles de src/types/models.ts: admin, conductor, padre.
-// El rol de cada usuario vive en usuarios/{uid}.rol y se consulta con get().
+// Basadas en los roles de types/models.ts: admin, conductor, padre. El rol de
+// cada usuario vive en usuarios/{uid}.rol y se consulta con get().
+//
+// Probadas automáticamente contra el emulador: ver pruebas-reglas/.
 //
 // MODELO DE SEGURIDAD (lo que hay que poder defender):
 //
-//  1. Nada es accesible sin iniciar sesión. No hay registro público: todas las
-//     cuentas las crea el admin, así que "autenticado" ya implica "es alguien de
-//     la empresa" (sistema de registro cerrado).
+//  1. Nada es accesible sin iniciar sesión, y una sesión de una cuenta DADA DE
+//     BAJA (activo: false) tampoco sirve para nada. Authentication no deja
+//     deshabilitar la cuenta de otro usuario sin un servidor, así que la baja se
+//     hace cumplir acá, en cada regla.
 //
-//  2. Las ESCRITURAS están fuertemente restringidas — es lo que más importa:
-//       - Configuración (usuarios, buses, escuelas, puntos, rutas, niños): solo
-//         el admin escribe.
-//       - Operación en vivo (viajes, ubicaciones): solo el conductor DUEÑO del
-//         viaje puede crear/editar el suyo (se verifica con conductorId).
-//       - Cada usuario solo edita su propio perfil y no puede cambiarse el rol.
-//       - Mensajes: solo el remitente crea; solo el destinatario marca "leído".
+//  2. Las ESCRITURAS están fuertemente restringidas:
+//       - Configuración (usuarios, buses, escuelas, puntos, rutas, niños,
+//         suplencias): solo el admin, y los cambios SENSIBLES tienen que ir
+//         acompañados de un registro de auditoría en el mismo lote.
+//       - Operación en vivo (viajes, ubicaciones, recorridos): solo quien maneja
+//         esa unidad ese día (el titular, o el suplente si hay suplencia).
+//       - Cada usuario edita de su perfil solo teléfono, foto y token de
+//         avisos: ni el nombre, ni el correo, ni el rol, ni si está activo.
+//       - Mensajes: solo el remitente crea; el destinatario solo marca "leído".
+//       - Las horas que sirven de EVIDENCIA las pone el servidor, no el reloj
+//         del teléfono (campos *Servidor == request.time).
 //
 //  3. Los datos SENSIBLES en LECTURA están acotados a quien corresponde:
-//       - Un padre solo lee a SUS hijos y los registros de SUS hijos.
+//       - Un padre solo lee a SUS hijos, SUS registros y la ubicación del bus
+//         que lleva a SUS hijos. De los usuarios, solo conductores y admin.
+//       - Un conductor solo lee a los niños que lleva (conductorIds) y de los
+//         usuarios solo padres y admin. De las solicitudes, solo los avisos
+//         operativos aprobados de estos días.
 //       - Un mensaje solo lo leen sus dos participantes (o el admin).
 //
-//  4. Los datos OPERATIVOS (buses, rutas, escuelas, puntos, viajes, ubicaciones)
-//     son legibles por cualquier usuario autenticado. Es una decisión deliberada
-//     que se aparta del planteo inicial ("solo los relacionados") por dos razones
-//     técnicas del plan gratuito, ambas defendibles:
-//       (a) Acotar la lectura por relación exigiría, en cada consulta, un get()
-//           a otra colección dentro de las reglas. Firestore limita esos get() a
-//           20 por escritura en lote y 10 por operación, y romperían las
-//           consultas de lista que la app hace filtrando en el cliente.
-//       (b) Evitar índices compuestos y Cloud Functions (fuera del plan Spark).
-//     El dato expuesto es de baja sensibilidad (la placa de un bus, la posición
-//     de un viaje en curso) y el sistema es cerrado. La info sensible (qué niño
-//     es de quién, los mensajes) sí queda acotada por las reglas de arriba.
+//  4. Los datos OPERATIVOS de baja sensibilidad (buses, rutas, escuelas, puntos,
+//     viajes, suplencias, canales) los lee cualquier cuenta activa. Acotarlos por
+//     relación exigiría un get() por documento en cada consulta de lista, que
+//     Firestore limita, y romperían las consultas que la app hace con filtros
+//     simples (sin índices compuestos ni Cloud Functions, plan Spark).
 //
-// DESVIACIONES respecto de la especificación original de la Fase 9, a propósito:
-//   - usuarios: la lectura es para cualquier autenticado (no solo el propio doc).
-//     La necesitan el chat y la llamada directa (ver nombre y teléfono del otro)
-//     y el envío de push (leer el expoPushToken del destinatario), todo sin
-//     backend intermedio.
-//   - ninos: el conductor puede leer TODOS los niños (no solo los de su ruta).
-//     Su app lista los niños activos y filtra en el cliente, y en un transbordo
-//     necesita el nombre de un niño que quizá no está en su propia ruta. Acotarlo
-//     por ruta obligaría a un get() por documento en la consulta de lista.
-//   - registros: la creación es para cualquier conductor (no se verifica en la
-//     regla que el viaje sea suyo). Motivo técnico: "marcar todos suben" es una
-//     escritura EN LOTE de un registro por niño; verificar el dueño con get() por
-//     registro chocaría con el tope de 20 get() por lote en rutas grandes. La
-//     propiedad del viaje se garantiza en la app (el conductor solo escribe sobre
-//     su viaje activo) y la regla ya impide que un padre escriba registros.
+// DESVIACIÓN QUE SE MANTIENE, a propósito:
+//   - registros: los crea cualquier conductor activo (no se verifica en la regla
+//     que el viaje sea suyo). "Marcar todos suben" es una escritura EN LOTE, y
+//     verificar el dueño con get() por registro podría chocar con el tope de
+//     accesos por lote en una parada grande. La propiedad del viaje la garantiza
+//     la app; la regla sí impide que un padre o una cuenta dada de baja escriba
+//     registros, y exige la hora del servidor.
 // ============================================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Helpers de rol ---
+    // ------------------------------------------------------------------------
+    // QUIÉN ES QUIEN PREGUNTA
+    // ------------------------------------------------------------------------
+
     function estaAutenticado() {
       return request.auth != null;
     }
 
-    function rolDe(uid) {
-      return get(/databases/$(database)/documents/usuarios/$(uid)).data.rol;
+    function rutaDoc(coleccion, id) {
+      return /databases/$(database)/documents/$(coleccion)/$(id);
+    }
+
+    // El perfil de quien pregunta. Firestore cachea este get() dentro de una
+    // misma petición: aunque varias funciones lo usen, cuenta una sola lectura.
+    function perfil() {
+      return get(rutaDoc('usuarios', request.auth.uid)).data;
+    }
+
+    // Una cuenta archivada o desactivada tiene activo == false. Un documento
+    // viejo que no tiene el campo cuenta como activo (así se creó el primer
+    // admin, antes de que existiera).
+    function cuentaActiva() {
+      return estaAutenticado() && perfil().get('activo', true) == true;
+    }
+
+    function tieneRol(rol) {
+      return cuentaActiva() && perfil().rol == rol;
     }
 
     function esAdmin() {
-      return estaAutenticado() && rolDe(request.auth.uid) == 'admin';
+      return tieneRol('admin');
     }
 
     function esConductor() {
-      return estaAutenticado() && rolDe(request.auth.uid) == 'conductor';
+      return tieneRol('conductor');
     }
 
     function esPadre() {
-      return estaAutenticado() && rolDe(request.auth.uid) == 'padre';
+      return tieneRol('padre');
     }
 
-    // --- usuarios ---
-    // Lectura: cualquier autenticado (necesario para chat, llamada y push — ver
-    // la nota "DESVIACIONES" arriba). Escritura restringida: cada quien solo
-    // edita su propio doc SIN cambiarse el rol; crear/borrar/cambiar rol es admin.
+    // Los campos que cambia una actualización
+    function cambiados() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // La fecha en Honduras ("YYYY-MM-DD") desplazada `dias` días. Honduras está
+    // en UTC-6 todo el año (no tiene horario de verano), así que alcanza con
+    // restarle 6 horas a la hora del servidor.
+    function fechaHonduras(dias) {
+      let t = request.time - duration.value(6, 'h') + duration.value(dias, 'd');
+      return string(t.year()) + '-' + dosDigitos(t.month()) + '-' + dosDigitos(t.day());
+    }
+
+    function dosDigitos(n) {
+      return n < 10 ? '0' + string(n) : string(n);
+    }
+
+    // ------------------------------------------------------------------------
+    // AUDITORÍA DE CAMBIOS SENSIBLES
+    // ------------------------------------------------------------------------
+    // Un cambio sensible (quién es el padre de un niño, a dónde se lo lleva,
+    // quién maneja una unidad, qué niños van en una ruta, dar de baja una
+    // cuenta…) solo se acepta si en el MISMO lote se crea un documento NUEVO en
+    // `auditoria` que lo describa. El documento modificado lleva el id de ese
+    // registro en `auditoriaId`, y la regla comprueba con existsAfter() que el
+    // registro exista al terminar el lote y que antes no existiera (no se puede
+    // reutilizar uno viejo). Los registros de auditoría no se editan ni se
+    // borran nunca, ni siquiera el admin.
+
+    function docAuditoria(id) {
+      return rutaDoc('auditoria', id);
+    }
+
+    function auditada(coleccion, docId) {
+      let id = request.resource.data.get('auditoriaId', '');
+      return id is string && id.size() > 0
+        && !exists(docAuditoria(id))
+        && existsAfter(docAuditoria(id))
+        && getAfter(docAuditoria(id)).data.coleccion == coleccion
+        && docId in getAfter(docAuditoria(id)).data.docIds;
+    }
+
+    // Un borrado no tiene documento nuevo donde anotar el id, así que su
+    // registro tiene un id que se deduce: "borrado-<colección>-<id>".
+    function borradoAuditado(coleccion, docId) {
+      let id = 'borrado-' + coleccion + '-' + docId;
+      return existsAfter(docAuditoria(id))
+        && getAfter(docAuditoria(id)).data.coleccion == coleccion
+        && docId in getAfter(docAuditoria(id)).data.docIds;
+    }
+
+    match /auditoria/{auditoriaId} {
+      allow read: if esAdmin();
+      allow create: if esAdmin()
+        && request.resource.data.actorId == request.auth.uid
+        && request.resource.data.hora == request.time
+        && request.resource.data.accion is string
+        && request.resource.data.coleccion is string
+        && request.resource.data.docIds is list
+        && request.resource.data.docIds.size() > 0
+        && request.resource.data.docIds.size() <= 500;
+      allow update, delete: if false;
+    }
+
+    // Marcas internas del panel (ej. cuándo se sincronizaron los accesos de los
+    // conductores por última vez)
+    match /sistema/{docId} {
+      allow read, write: if esAdmin();
+    }
+
+    // ------------------------------------------------------------------------
+    // USUARIOS
+    // ------------------------------------------------------------------------
     match /usuarios/{usuarioId} {
-      allow read: if estaAutenticado();
-      allow create: if esAdmin();
-      allow update: if esAdmin() ||
-        (request.auth.uid == usuarioId && request.resource.data.rol == resource.data.rol);
-      allow delete: if esAdmin();
+      // Nadie descarga el padrón completo. El padre ve a los conductores y a la
+      // administración (para el chat, la llamada y los avisos); el conductor ve
+      // a los padres y a la administración. Cada uno lee siempre su propio
+      // documento, aunque su cuenta esté dada de baja: así la app le puede
+      // decir por qué no entra.
+      function visibleParaMi() {
+        return esAdmin()
+          || (esConductor() && resource.data.rol in ['padre', 'admin'])
+          || (esPadre() && resource.data.rol in ['conductor', 'admin']);
+      }
+
+      allow get: if (estaAutenticado() && request.auth.uid == usuarioId) || visibleParaMi();
+      allow list: if visibleParaMi();
+
+      allow create: if esAdmin() && auditada('usuarios', usuarioId);
+
+      allow update: if
+        (esAdmin()
+          && (!cambiados().hasAny(['rol', 'activo', 'eliminado', 'email'])
+              || auditada('usuarios', usuarioId)))
+        || (cuentaActiva()
+          && request.auth.uid == usuarioId
+          && cambiados().hasOnly(['telefono', 'foto', 'debeCompletarPerfil', 'expoPushToken']));
+
+      allow delete: if esAdmin() && borradoAuditado('usuarios', usuarioId);
     }
 
-    // --- buses: dato operativo, cualquier autenticado lo lee; solo admin escribe ---
+    // ------------------------------------------------------------------------
+    // CATÁLOGO
+    // ------------------------------------------------------------------------
     match /buses/{busId} {
-      allow read: if estaAutenticado();
-      allow write: if esAdmin();
+      allow read: if cuentaActiva();
+      allow create: if esAdmin() && auditada('buses', busId);
+      allow update: if esAdmin()
+        && (!cambiados().hasAny(['conductorId', 'activo']) || auditada('buses', busId));
+      allow delete: if esAdmin() && borradoAuditado('buses', busId);
     }
 
-    // --- escuelas: dato operativo, lectura autenticado; solo admin escribe ---
     match /escuelas/{escuelaId} {
-      allow read: if estaAutenticado();
+      allow read: if cuentaActiva();
       allow write: if esAdmin();
     }
 
-    // --- paradas (colección legacy previa a 'puntos'): lectura autenticado; admin escribe ---
+    // Colección legacy previa a 'puntos'
     match /paradas/{paradaId} {
-      allow read: if estaAutenticado();
+      allow read: if cuentaActiva();
       allow write: if esAdmin();
     }
 
-    // --- puntos (de transbordo): lectura autenticado; solo admin escribe ---
     match /puntos/{puntoId} {
-      allow read: if estaAutenticado();
+      allow read: if cuentaActiva();
       allow write: if esAdmin();
     }
 
-    // --- rutas (con niños/paradas anidados): lectura autenticado; solo admin edita ---
     match /rutas/{rutaId} {
-      allow read: if estaAutenticado();
-      allow write: if esAdmin();
+      allow read: if cuentaActiva();
+      allow create: if esAdmin() && auditada('rutas', rutaId);
+      allow update: if esAdmin()
+        && (!cambiados().hasAny(['busId', 'ninoIds', 'ninos', 'activa']) || auditada('rutas', rutaId));
+      allow delete: if esAdmin() && borradoAuditado('rutas', rutaId);
     }
 
-    // --- ninos: dato sensible en lectura ---
-    // Admin ve todo; el padre SOLO a sus hijos (padreId == su uid); el conductor
-    // a todos (su app filtra en cliente y el transbordo puede necesitar un niño
-    // ajeno — ver "DESVIACIONES"). Escritura solo admin, con UNA excepción: el
-    // padre puede actualizar SOLO el campo 'foto' de sus propios hijos (subir o
-    // cambiar la foto de perfil del niño desde la app).
+    // --- ninos: el dato más sensible del sistema (dónde vive un niño, su foto) ---
+    // El padre lee a SUS hijos. El conductor lee SOLO a los niños que lleva: su
+    // uid tiene que estar en `conductorIds`, una lista que el panel recalcula
+    // desde las rutas, las unidades y las suplencias vigentes.
     match /ninos/{ninoId} {
-      allow read: if esAdmin() ||
-        (esPadre() && resource.data.padreId == request.auth.uid) ||
-        esConductor();
-      allow update: if esAdmin() ||
-        (esPadre() && resource.data.padreId == request.auth.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['foto']));
-      allow create, delete: if esAdmin();
+      allow read: if esAdmin()
+        || (esPadre() && resource.data.padreId == request.auth.uid)
+        || (esConductor() && request.auth.uid in resource.data.get('conductorIds', []));
+
+      allow create: if esAdmin() && auditada('ninos', ninoId);
+
+      allow update: if
+        (esAdmin()
+          && (!cambiados().hasAny(['padreId', 'parada', 'paradaTarde', 'activo', 'eliminado'])
+              || auditada('ninos', ninoId)))
+        || (esPadre()
+          && resource.data.padreId == request.auth.uid
+          && cambiados().hasOnly(['foto']));
+
+      allow delete: if esAdmin() && borradoAuditado('ninos', ninoId);
     }
 
-    // --- solicitudes: el padre pide, el admin resuelve ---
-    // Crear: solo un padre y solo a su nombre (padreId == su uid) y siempre en
-    // estado 'pendiente' (nadie se auto-aprueba). Leer: el padre las suyas
-    // (consulta con padreId fijo), el conductor todas (necesita los cambios
-    // puntuales del día para su lista — mismo criterio abierto que registros),
-    // admin todo. Resolver (update) y borrar: solo admin.
+    // --- suplencias: quién maneja una unidad un día puntual en lugar del titular ---
+    // El id es "<busId>_<fecha>": una sola suplencia por unidad por día. No se
+    // borran: se cancelan (cancelada: true), y cada cambio queda auditado.
+    match /suplencias/{suplenciaId} {
+      allow read: if cuentaActiva();
+      allow create, update: if esAdmin()
+        && suplenciaId == request.resource.data.busId + '_' + request.resource.data.fecha
+        && request.resource.data.conductorId is string
+        && auditada('suplencias', suplenciaId);
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------------
+    // SOLICITUDES (el padre pide, el admin resuelve)
+    // ------------------------------------------------------------------------
     match /solicitudes/{solicitudId} {
-      allow read: if esAdmin() || esConductor() ||
-        (esPadre() && resource.data.padreId == request.auth.uid);
-      allow create: if esPadre() &&
-        request.resource.data.padreId == request.auth.uid &&
-        request.resource.data.estado == 'pendiente';
+      // El conductor solo necesita los AVISOS del día para su lista: quién no
+      // viaja hoy y qué niño se recoge o se deja en otro lado solo hoy. Nada de
+      // inscripciones (traen foto y domicilio de niños que ni siquiera lleva) ni
+      // del historial. Se aceptan ayer, hoy y mañana para tolerar la diferencia
+      // de reloj de un teléfono.
+      allow read: if esAdmin()
+        || (esPadre() && resource.data.padreId == request.auth.uid)
+        || (esConductor()
+          && resource.data.tipo in ['ausencia_dia', 'cambio_ubicacion']
+          && resource.data.estado == 'aprobada'
+          && resource.data.fechaAplicacion in [fechaHonduras(-1), fechaHonduras(0), fechaHonduras(1)]);
+
+      // Un PEDIDO nace pendiente y lo resuelve el admin. La excepción es el
+      // AVISO de ausencia ("hoy no viaja"): no hay nada que aprobar y tiene que
+      // servir el mismo día, así que nace ya aprobado. 'update' sigue siendo
+      // solo del admin: un padre no puede aprobarse un cambio de escuela.
+      allow create: if esPadre()
+        && request.resource.data.padreId == request.auth.uid
+        && (request.resource.data.estado == 'pendiente'
+            || (request.resource.data.tipo == 'ausencia_dia'
+                && request.resource.data.estado == 'aprobada'));
       allow update, delete: if esAdmin();
     }
 
-    // --- viajes: lectura autenticado; el conductor solo crea/edita LOS SUYOS ---
+    // ------------------------------------------------------------------------
+    // OPERACIÓN EN VIVO
+    // ------------------------------------------------------------------------
     match /viajes/{viajeId} {
-      allow read: if estaAutenticado();
-      allow create: if esAdmin() ||
-        (esConductor() && request.resource.data.conductorId == request.auth.uid);
-      allow update: if esAdmin() ||
-        (esConductor() && resource.data.conductorId == request.auth.uid);
+      allow read: if cuentaActiva();
+
+      // Quién maneja una unidad en una fecha: si ese día hay una suplencia
+      // vigente, el suplente; si no, el conductor titular de la unidad.
+      function puedeManejar(busId, fecha) {
+        let sup = rutaDoc('suplencias', busId + '_' + fecha);
+        let cubierta = exists(sup) && get(sup).data.get('cancelada', false) == false;
+        return cubierta
+          ? get(sup).data.conductorId == request.auth.uid
+          : get(rutaDoc('buses', busId)).data.conductorId == request.auth.uid;
+      }
+
+      allow create: if esAdmin() || (esConductor()
+        && request.resource.data.conductorId == request.auth.uid
+        && request.resource.data.busId is string
+        && request.resource.data.fecha is string
+        && puedeManejar(request.resource.data.busId, request.resource.data.fecha)
+        && request.resource.data.horaInicioServidor == request.time);
+
+      // Del viaje, el conductor solo puede terminarlo o marcar la demora. Si
+      // pone la hora de fin, la del servidor tiene que acompañarla.
+      allow update: if esAdmin() || (esConductor()
+        && resource.data.conductorId == request.auth.uid
+        && cambiados().hasOnly(['estado', 'horaFin', 'horaFinServidor', 'demorado'])
+        && (!cambiados().hasAny(['horaFin'])
+            || request.resource.data.horaFinServidor == request.time));
+
       allow delete: if esAdmin();
     }
 
-    // --- registros (asistencia) ---
-    // Lectura: admin y conductor todo; el padre SOLO los registros de sus hijos
-    // (se verifica el padreId del niño del registro). Creación: admin o conductor
-    // (la propiedad del viaje se garantiza en la app — ver "DESVIACIONES"). Los
-    // registros son inmutables: corregir es crear uno nuevo, no editar; por eso
-    // update/delete es solo admin.
+    // --- registros (asistencia): inmutables; corregir es agregar un 'anulado' ---
     match /registros/{registroId} {
       allow read: if esAdmin() || esConductor() ||
         (esPadre() &&
-          get(/databases/$(database)/documents/ninos/$(resource.data.ninoId)).data.padreId == request.auth.uid);
-      allow create: if esAdmin() || esConductor();
+          get(rutaDoc('ninos', resource.data.ninoId)).data.padreId == request.auth.uid);
+
+      allow create: if (esConductor() || esAdmin())
+        && request.resource.data.viajeId is string
+        && request.resource.data.ninoId is string
+        && request.resource.data.evento in ['subio', 'bajo', 'no_estaba', 'anulado']
+        && request.resource.data.hora is timestamp
+        && request.resource.data.horaServidor == request.time;
+
       allow update, delete: if esAdmin();
     }
 
-    // --- ubicaciones: un doc por viaje; solo el conductor DUEÑO de ese viaje escribe ---
-    // La escritura es de un solo documento (setDoc), así que el get() al viaje
-    // está muy por debajo del tope de get() de las reglas.
-    match /ubicaciones/{viajeId} {
-      allow read: if estaAutenticado();
-      allow write: if esAdmin() ||
-        (esConductor() &&
-          get(/databases/$(database)/documents/viajes/$(viajeId)).data.conductorId == request.auth.uid);
+    // --- incidencias: las novedades que el conductor reporta a mitad de viaje ---
+    // Lee solo el admin (el padre se entera por la notificación). El conductor
+    // crea solo a su propio nombre, con la hora del servidor. Nadie edita.
+    match /incidencias/{incidenciaId} {
+      allow read: if esAdmin();
+      allow create: if (esAdmin()
+          || (esConductor() && request.resource.data.conductorId == request.auth.uid))
+        && request.resource.data.tipo in ['averia', 'trafico', 'clima', 'demora', 'otro']
+        && request.resource.data.horaServidor == request.time;
+      allow update, delete: if esAdmin();
     }
 
-    // --- canales y avisos: tablón informativo por escuela ---
-    // Solo el admin publica; el resto solo lee. La membresía NO se guarda: la app
-    // le muestra a cada padre los canales de las escuelas de sus hijos. Por eso la
-    // lectura es para cualquier autenticado — acotarla exigiría un get() por
-    // documento en cada consulta de lista (mismo motivo documentado arriba para
-    // los datos operativos). El contenido es un aviso escolar, no un dato
-    // personal, y el sistema es cerrado.
+    // --- ubicaciones: un documento por viaje en curso ---
+    // El padre solo ve el bus que lleva a sus hijos: el conductor escribe en el
+    // documento la lista `padreIds` de su ruta. Leer un documento que todavía no
+    // existe (el bus aún no mandó su primera posición) está permitido: no revela
+    // nada, y así la pantalla del padre queda escuchando hasta que llegue.
+    match /ubicaciones/{viajeId} {
+      function esDuenoDelViaje() {
+        return esConductor()
+          && get(rutaDoc('viajes', viajeId)).data.conductorId == request.auth.uid;
+      }
+
+      allow read: if esAdmin() || esConductor()
+        || (esPadre()
+          && (resource == null || request.auth.uid in resource.data.get('padreIds', [])));
+
+      allow create, update: if esAdmin() || (esDuenoDelViaje()
+        && request.resource.data.padreIds is list
+        && request.resource.data.padreIds.size() <= 300);
+
+      allow delete: if esAdmin() || esDuenoDelViaje();
+    }
+
+    // --- recorridos: el camino que hizo el bus en un viaje (un punto por minuto) ---
+    // Solo se AGREGAN puntos: la lista nueva tiene que contener a la anterior
+    // completa, así nadie puede reescribir por dónde pasó el bus.
+    match /recorridos/{viajeId} {
+      allow read: if esAdmin();
+
+      allow create: if esConductor()
+        && get(rutaDoc('viajes', viajeId)).data.conductorId == request.auth.uid
+        && request.resource.data.conductorId == request.auth.uid
+        && request.resource.data.puntos is list
+        && request.resource.data.puntos.size() <= 1;
+
+      allow update: if esConductor()
+        && resource.data.conductorId == request.auth.uid
+        && cambiados().hasOnly(['puntos'])
+        && request.resource.data.puntos.size() <= 3000
+        && request.resource.data.puntos.hasAll(resource.data.puntos);
+
+      allow delete: if esAdmin();
+    }
+
+    // ------------------------------------------------------------------------
+    // COMUNICACIÓN
+    // ------------------------------------------------------------------------
+
+    // --- canales y avisos: tablón informativo por escuela, solo el admin publica ---
     match /canales/{canalId} {
-      allow read: if estaAutenticado();
+      allow read: if cuentaActiva();
       allow write: if esAdmin();
     }
 
     match /avisos/{avisoId} {
-      allow read: if estaAutenticado();
+      allow read: if cuentaActiva();
       allow create: if esAdmin() && request.resource.data.de == request.auth.uid;
       allow update, delete: if esAdmin();
     }
 
     // --- mensajes: solo los dos participantes de la conversación (o el admin) ---
-    // Crear: solo el remitente (de == su uid). Marcar "leído": solo el
-    // destinatario (para == su uid). Borrar: solo admin.
     match /mensajes/{mensajeId} {
-      allow read: if esAdmin() ||
-        (estaAutenticado() &&
-          (request.auth.uid == resource.data.de || request.auth.uid == resource.data.para));
-      allow create: if estaAutenticado() && request.auth.uid == request.resource.data.de;
-      allow update: if esAdmin() ||
-        (estaAutenticado() && request.auth.uid == resource.data.para);
+      // Mismo cálculo que idConversacion() en la app: los dos uids ordenados
+      function idConversacion(a, b) {
+        return a < b ? a + '_' + b : b + '_' + a;
+      }
+
+      // Un padre le escribe al conductor o a la administración; un conductor, a
+      // un padre o a la administración; la administración, a cualquiera.
+      function puedeEscribirA(destinoId) {
+        let rolDestino = get(rutaDoc('usuarios', destinoId)).data.rol;
+        return esAdmin()
+          || (esPadre() && rolDestino in ['conductor', 'admin'])
+          || (esConductor() && rolDestino in ['padre', 'admin']);
+      }
+
+      allow read: if esAdmin()
+        || (cuentaActiva()
+          && (request.auth.uid == resource.data.de || request.auth.uid == resource.data.para));
+
+      allow create: if cuentaActiva()
+        && request.resource.data.de == request.auth.uid
+        && request.resource.data.para is string
+        && request.resource.data.para != request.auth.uid
+        && request.resource.data.conversacionId
+             == idConversacion(request.auth.uid, request.resource.data.para)
+        && request.resource.data.texto is string
+        && request.resource.data.texto.size() > 0
+        && request.resource.data.texto.size() <= 4000
+        && request.resource.data.leido == false
+        && request.resource.data.horaServidor == request.time
+        && puedeEscribirA(request.resource.data.para);
+
+      // El destinatario solo puede marcar el mensaje como leído: el texto de un
+      // mensaje ya enviado no lo cambia nadie.
+      allow update: if cuentaActiva()
+        && request.auth.uid == resource.data.para
+        && cambiados().hasOnly(['leido'])
+        && request.resource.data.leido == true;
+
       allow delete: if esAdmin();
     }
   }

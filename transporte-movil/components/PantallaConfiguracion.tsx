@@ -25,6 +25,7 @@ import {
 } from '@/services/notificacionesService';
 import { elegirFotoComprimida } from '@/utils/fotos';
 import { ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
+import { FUENTES } from '@/constants/tema';
 
 // Pantalla de Configuración, compartida por padre y conductor (es idéntica para
 // ambos: foto y teléfono propios, cambio de contraseña y cierre de sesión).
@@ -307,7 +308,7 @@ const styles = StyleSheet.create({
   filaPerfil: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.seccion },
   botonCamara: { position: 'absolute', bottom: -10, right: -14 },
   datosPerfil: { flex: 1, gap: 2 },
-  negrita: { fontWeight: '700' },
+  negrita: { fontFamily: FUENTES.textoNegrita },
   campo: { borderRadius: RADIO.control },
   opcion: { borderRadius: RADIO.control, paddingVertical: 10, paddingHorizontal: 4 },
   filaOpcion: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno },

@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Button,
   Group,
-  Loader,
   Modal,
+  Select,
   Stack,
   Switch,
   Table,
@@ -24,7 +24,16 @@ import {
   crearEscuela,
   listarEscuelas,
 } from "../services/escuelasService";
+import FiltrosCatalogo, { PiePaginacion } from "../components/FiltrosCatalogo";
+import { usePaginacion } from "../hooks/use-paginacion";
+import {
+  filtrarPorEstado,
+  filtrarTexto,
+  OPCIONES_ESTADO,
+  type FiltroEstado,
+} from "../utils/filtros";
 import type { Escuela } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 export default function EscuelasScreen() {
   const [escuelas, setEscuelas] = useState<Escuela[] | null>(null);
@@ -35,6 +44,17 @@ export default function EscuelasScreen() {
   // La ubicación se maneja aparte del form (viene del mapa, no de un input)
   const [ubicacion, setUbicacion] = useState<{ lat: number; lng: number } | null>(null);
   const [guardando, setGuardando] = useState(false);
+
+  // --- Filtros de la tabla ---
+  const [busqueda, setBusqueda] = useState("");
+  const [estado, setEstado] = useState<FiltroEstado>("activos");
+
+  const filtradas = useMemo(() => {
+    const base = filtrarPorEstado(escuelas ?? [], estado, (e) => e.activa);
+    return filtrarTexto(base, busqueda, (e) => [e.nombre]);
+  }, [escuelas, busqueda, estado]);
+
+  const pag = usePaginacion(filtradas);
 
   const form = useForm({
     initialValues: { nombre: "" },
@@ -107,7 +127,7 @@ export default function EscuelasScreen() {
   };
 
   if (!escuelas) {
-    return <Loader />;
+    return <CargandoBus texto="Cargando las escuelas…" />;
   }
 
   return (
@@ -118,6 +138,27 @@ export default function EscuelasScreen() {
           Nueva escuela
         </Button>
       </Group>
+
+      <FiltrosCatalogo
+        busqueda={busqueda}
+        onBusqueda={setBusqueda}
+        placeholder="Nombre de la escuela"
+        mostrados={filtradas.length}
+        total={escuelas.length}
+        onLimpiar={() => {
+          setBusqueda("");
+          setEstado("activos");
+        }}
+      >
+        <Select
+          label="Estado"
+          data={OPCIONES_ESTADO}
+          value={estado}
+          onChange={(v) => setEstado((v as FiltroEstado) ?? "activos")}
+          w={150}
+          allowDeselect={false}
+        />
+      </FiltrosCatalogo>
 
       <Table striped highlightOnHover>
         <Table.Thead>
@@ -130,7 +171,7 @@ export default function EscuelasScreen() {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {escuelas.map((escuela) => (
+          {pag.visibles.map((escuela) => (
             <Table.Tr key={escuela.id}>
               <Table.Td>{escuela.nombre}</Table.Td>
               <Table.Td>
@@ -156,17 +197,25 @@ export default function EscuelasScreen() {
               </Table.Td>
             </Table.Tr>
           ))}
-          {escuelas.length === 0 && (
+          {filtradas.length === 0 && (
             <Table.Tr>
               <Table.Td colSpan={5}>
-                <Text c="dimmed" ta="center">
-                  Todavía no hay escuelas registradas.
+                <Text c="dimmed" ta="center" py="lg" size="sm">
+                  {escuelas.length === 0
+                    ? "Todavía no hay escuelas registradas."
+                    : "Ninguna escuela coincide con la búsqueda."}
                 </Text>
               </Table.Td>
             </Table.Tr>
           )}
         </Table.Tbody>
       </Table>
+
+      <PiePaginacion
+        pagina={pag.pagina}
+        totalPaginas={pag.totalPaginas}
+        onPagina={pag.setPagina}
+      />
 
       <Modal
         opened={modalAbierto}

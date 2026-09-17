@@ -1,18 +1,16 @@
 import {
-  Timestamp,
   collection,
   doc,
   getDoc,
-  getDocs,
   onSnapshot,
   query,
   updateDoc,
   where,
-  writeBatch,
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { EventoRegistro, Nino, Registro, Ruta } from "../types/models";
+import { guardarRegistros } from "./colaRegistros";
+import type { EventoRegistro, Registro, Ruta } from "../types/models";
 
 // Contexto del transbordo (viene de la pantalla del conductor)
 export interface ContextoTransbordo {
@@ -31,6 +29,10 @@ export interface EventoTransbordo {
   excepcion?: boolean; // niño no planificado / continuar sin transbordo
   discrepancia?: boolean; // el receptor confirmó sin que el emisor lo hubiera entregado
   motivo?: string;
+  // Copiados por quien ENTREGA (que sí puede leer al niño): el bus que lo recibe
+  // quizá no tenga permiso de leerlo si no está en su ruta.
+  ninoNombre?: string;
+  ninoEscuelaId?: string;
 }
 
 // --- La ruta por id (para leer ruta.ninos y ruta.escuelaIds) ---
@@ -38,14 +40,6 @@ export async function obtenerRuta(rutaId: string): Promise<Ruta | null> {
   const snap = await getDoc(doc(db, "rutas", rutaId));
   if (!snap.exists()) return null;
   return { id: snap.id, ...snap.data() } as Ruta;
-}
-
-// --- Todos los niños activos (para resolver nombres y escuela) ---
-// El conductor puede leer todos los niños (regla actual). Necesita nombres de
-// niños que quizá no están en su propia ruta (excepciones del otro bus).
-export async function listarNinosActivos(): Promise<Nino[]> {
-  const snap = await getDocs(query(collection(db, "ninos"), where("activo", "==", true)));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Nino);
 }
 
 // --- Escucha EN TIEMPO REAL los registros de transbordo de un punto en una fecha ---
@@ -71,34 +65,33 @@ export function escucharRegistrosDelPunto(
 
 // --- Registra entregas/recepciones de transbordo (append-only, atómico) ---
 // Los registros son INMUTABLES: si hubo un error, se crea un registro de
-// corrección, no se edita. Por eso siempre es 'set' de docs nuevos en un batch.
-export async function registrarTransbordo(
+// corrección, no se edita. Pasan por la cola del teléfono igual que la
+// asistencia normal (ver colaRegistros.ts), así que no se pierden sin señal.
+export function registrarTransbordo(
   ctx: ContextoTransbordo,
   items: EventoTransbordo[]
-): Promise<void> {
-  if (items.length === 0) return;
-  const lote = writeBatch(db);
-  const hora = Timestamp.now();
-  for (const it of items) {
-    const datos: Record<string, unknown> = {
+): Promise<Registro[]> {
+  const horaMs = Date.now();
+  return guardarRegistros(
+    items.map((it) => ({
       viajeId: ctx.viajeId,
       ninoId: it.ninoId,
       evento: it.evento,
-      hora,
+      horaMs,
       paradaId: "",
       fecha: ctx.fecha,
-      lugarTipo: "punto",
+      lugarTipo: "punto" as const,
       lugarId: ctx.puntoId,
       rutaId: ctx.rutaId,
       busId: ctx.busId,
       conductorId: ctx.conductorId,
-    };
-    if (it.excepcion) datos.excepcion = true;
-    if (it.discrepancia) datos.discrepancia = true;
-    if (it.motivo) datos.motivo = it.motivo;
-    lote.set(doc(collection(db, "registros")), datos);
-  }
-  await lote.commit();
+      ...(it.excepcion ? { excepcion: true } : {}),
+      ...(it.discrepancia ? { discrepancia: true } : {}),
+      ...(it.motivo ? { motivo: it.motivo } : {}),
+      ...(it.ninoNombre ? { ninoNombre: it.ninoNombre } : {}),
+      ...(it.ninoEscuelaId ? { ninoEscuelaId: it.ninoEscuelaId } : {}),
+    }))
+  );
 }
 
 // --- Contingencia "Esperar": marca el viaje como demorado ---

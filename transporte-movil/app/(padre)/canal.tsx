@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { ActivityIndicator, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
@@ -10,6 +10,7 @@ import TarjetaAviso from '@/components/TarjetaAviso';
 import { escucharAvisos } from '@/services/canalesService';
 import { estilosBase } from '@/constants/estilos';
 import type { Aviso } from '@/types/models';
+import CargandoBus from '@/components/CargandoBus';
 
 // Avisos de un canal. Es solo lectura a propósito: el canal es informativo, no
 // un chat. Si el padre necesita responder, tiene la sección Mensajes.
@@ -32,7 +33,7 @@ export default function CanalScreen() {
         scroll={false}
       >
         <View style={estilosBase.centrado}>
-          <ActivityIndicator size="large" />
+          <CargandoBus texto="Cargando los avisos…" />
         </View>
       </PantallaBase>
     );

@@ -10,7 +10,18 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { Bus, Escuela, Nino, Registro, Ruta, Usuario, UbicacionActual, Viaje } from "../types/models";
+import { fechaDeHoy } from "./viajesService";
+import type {
+  Bus,
+  Escuela,
+  Nino,
+  Registro,
+  Ruta,
+  Suplencia,
+  Usuario,
+  UbicacionActual,
+  Viaje,
+} from "../types/models";
 
 // Solo filtros de igualdad / array-contains (sin orderBy en servidor) para no
 // requerir índices compuestos. El orden se resuelve en cliente.
@@ -73,6 +84,17 @@ export async function obtenerBus(busId: string): Promise<Bus | null> {
   const snap = await getDoc(doc(db, "buses", busId));
   if (!snap.exists()) return null;
   return { id: snap.id, ...snap.data() } as Bus;
+}
+
+// --- La suplencia de HOY de una unidad, si la hay ---
+// Un día de suplencia, quien lleva al hijo no es el conductor titular: el padre
+// tiene que ver (y poder llamar) al que maneja de verdad. El id de la suplencia
+// se deduce ("<busId>_<fecha>"), así que es una sola lectura, sin consultas.
+export async function obtenerSuplenciaDeHoy(busId: string): Promise<Suplencia | null> {
+  const snap = await getDoc(doc(db, "suplencias", `${busId}_${fechaDeHoy()}`)).catch(() => null);
+  if (!snap?.exists()) return null;
+  const suplencia = { id: snap.id, ...snap.data() } as Suplencia;
+  return suplencia.cancelada ? null : suplencia;
 }
 
 // --- Cambia la foto de un hijo ---
@@ -148,8 +170,10 @@ export async function listarRegistrosDeNino(
 }
 
 // --- Contactos de chat del padre (Fase 7): con quién puede escribirse ---
-// Son el/los conductor(es) de las rutas de sus hijos, más la administración. El
-// conductor de una ruta se deriva por su bus (ruta.busId → bus.conductorId).
+// Son quienes manejan las unidades de las rutas de sus hijos —el titular y, si
+// hoy hay suplencia, también el suplente—, más la administración. Se leen SOLO
+// esos perfiles, uno por uno: las reglas no le dejan al padre descargar la
+// lista de usuarios (vería los teléfonos de las demás familias).
 export async function listarContactosPadre(
   padreId: string
 ): Promise<{ conductores: Usuario[]; admin: Usuario | null }> {
@@ -158,38 +182,67 @@ export async function listarContactosPadre(
   // Rutas de todos los hijos, sin repetir (un hijo puede tener mañana y tarde)
   const rutasPorHijo = await Promise.all(hijos.map((h) => listarRutasDeNino(h.id)));
   const rutas = [...new Map(rutasPorHijo.flat().map((r) => [r.id, r])).values()];
-  const busIds = new Set(rutas.map((r) => r.busId).filter(Boolean));
+  const busIds = [...new Set(rutas.map((r) => r.busId).filter(Boolean))];
 
-  // Buses (para saber el conductor de cada uno) y usuarios (para nombres/teléfonos)
-  const [busesSnap, usuarios] = await Promise.all([
-    getDocs(collection(db, "buses")),
-    listarUsuariosDelSistema(),
+  const [buses, suplencias, snapAdmin] = await Promise.all([
+    Promise.all(busIds.map((id) => obtenerBus(id).catch(() => null))),
+    Promise.all(busIds.map((id) => obtenerSuplenciaDeHoy(id))),
+    getDocs(query(collection(db, "usuarios"), where("rol", "==", "admin"))),
   ]);
+
   const conductorIds = new Set<string>();
-  busesSnap.docs.forEach((d) => {
-    const bus = d.data() as Bus;
-    if (busIds.has(d.id) && bus.conductorId) conductorIds.add(bus.conductorId);
+  buses.forEach((bus) => {
+    if (bus?.conductorId) conductorIds.add(bus.conductorId);
+  });
+  suplencias.forEach((suplencia) => {
+    if (suplencia) conductorIds.add(suplencia.conductorId);
   });
 
-  const conductores = usuarios.filter((u) => u.rol === "conductor" && conductorIds.has(u.id));
-  const admin = usuarios.find((u) => u.rol === "admin" && u.activo) ?? null;
+  const perfiles = await Promise.all(
+    [...conductorIds].map((id) => getDoc(doc(db, "usuarios", id)).catch(() => null))
+  );
+  const conductores = perfiles
+    .filter((snap) => !!snap?.exists())
+    .map((snap) => ({ id: snap!.id, ...snap!.data() }) as Usuario);
+
+  const admin =
+    snapAdmin.docs
+      .map((d) => ({ id: d.id, ...d.data() }) as Usuario)
+      .find((u) => u.activo !== false) ?? null;
+
   return { conductores, admin };
 }
 
-// --- Todos los usuarios del sistema (para resolver contactos) ---
-async function listarUsuariosDelSistema(): Promise<Usuario[]> {
-  const snap = await getDocs(collection(db, "usuarios"));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Usuario);
-}
-
 // --- Escucha en tiempo real la ubicación del bus de un viaje ---
+// Un error de Firestore (sin señal, o un permiso que el conductor todavía no
+// actualizó) CIERRA la escucha para siempre. En vez de dejar el mapa congelado,
+// se vuelve a suscribir sola a los pocos segundos, hasta que la pantalla se
+// cierre.
+const REINTENTO_UBICACION_MS = 10 * 1000;
+
 export function escucharUbicacion(
   viajeId: string,
   callback: (ubicacion: UbicacionActual | null) => void
 ): Unsubscribe {
-  return onSnapshot(
-    doc(db, "ubicaciones", viajeId),
-    (snap) => callback(snap.exists() ? (snap.data() as UbicacionActual) : null),
-    () => callback(null)
-  );
+  let cerrada = false;
+  let desuscribir: Unsubscribe = () => {};
+  let reintento: ReturnType<typeof setTimeout> | undefined;
+
+  const suscribir = () => {
+    desuscribir = onSnapshot(
+      doc(db, "ubicaciones", viajeId),
+      (snap) => callback(snap.exists() ? (snap.data() as UbicacionActual) : null),
+      () => {
+        callback(null);
+        if (!cerrada) reintento = setTimeout(suscribir, REINTENTO_UBICACION_MS);
+      }
+    );
+  };
+  suscribir();
+
+  return () => {
+    cerrada = true;
+    if (reintento) clearTimeout(reintento);
+    desuscribir();
+  };
 }

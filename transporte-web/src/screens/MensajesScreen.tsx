@@ -6,7 +6,6 @@ import {
   Button,
   Flex,
   Group,
-  Loader,
   Paper,
   ScrollArea,
   SegmentedControl,
@@ -29,6 +28,7 @@ import {
   type ResumenConversacion,
 } from "../services/mensajesService";
 import type { Mensaje, Usuario } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 // Pantalla de mensajería del admin (Fase 7). Dos paneles: a la izquierda las
 // conversaciones (y un selector para iniciar una nueva con cualquier conductor o
@@ -145,7 +145,7 @@ export default function MensajesScreen() {
   };
 
   if (!usuarios) {
-    return <Loader />;
+    return <CargandoBus texto="Cargando las conversaciones…" />;
   }
 
   const seleccionado = seleccion ? usuariosPorId.get(seleccion) : null;

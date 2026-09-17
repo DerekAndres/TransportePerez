@@ -1,5 +1,7 @@
-import { useEffect, useRef } from "react";
-import { MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { useEffect, useRef, useState } from "react";
+import { MapContainer, Marker, Popup, Tooltip, useMap } from "react-leaflet";
+import BotonCentrarMapa from "./BotonCentrarMapa";
+import CapaTeselas from "./CapaTeselas";
 import { Avatar, Group, Stack, Text } from "@mantine/core";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -16,18 +18,57 @@ export interface BusEnVivo {
   lng: number;
   titulo: string; // nombre de la ruta
   subtitulo: string; // conductor · placa
+  // Foto de la unidad (base64, la sube el admin al dar de alta el bus) y su
+  // placa. Van al marcador del mapa: ver `iconoBus`.
+  foto?: string;
+  placa?: string;
 }
 
-// Ícono de bus: burbuja azul con sombra, igual que en la app del padre
-const iconoBus = L.divIcon({
-  html:
-    '<div style="width:40px;height:40px;border-radius:50%;background:#1565C0;border:3px solid #fff;' +
-    'box-shadow:0 3px 10px rgba(13,40,84,.4);display:flex;align-items:center;justify-content:center;' +
-    'font-size:20px;box-sizing:border-box">🚌</div>',
-  className: "",
-  iconSize: [40, 40],
-  iconAnchor: [20, 20],
-});
+// ============================================
+// EL MARCADOR DEL BUS
+// ============================================
+// Muestra la FOTO REAL de la unidad, no un emoji. Para Francis no es un detalle
+// estético: cuando hay ocho buses moviéndose a la vez en el mismo mapa, ocho
+// emojis idénticos obligan a pasar el mouse por cada uno para saber cuál es
+// cuál. Con la foto los reconoce de un vistazo, igual que los reconoce en el
+// patio de la empresa.
+//
+// Debajo de la foto va la PLACA, que es como se nombran las unidades por radio
+// y por teléfono. Las dos cosas juntas hacen que el mapa se pueda leer sin
+// tocar nada.
+//
+// Si la unidad no tiene foto cargada, queda la burbuja azul con el emoji: se
+// degrada, no se rompe.
+function iconoBus(bus: BusEnVivo) {
+  const interior = bus.foto
+    ? `<img src="${bus.foto}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%" />`
+    : '<span style="font-size:20px">🚌</span>';
+
+  // La placa va en una cápsula debajo del círculo, montada con posición
+  // absoluta para que no empuje al marcador y este siga centrado en su
+  // coordenada real.
+  const placa = bus.placa
+    ? `<div style="position:absolute;top:42px;left:50%;transform:translateX(-50%);` +
+      `background:rgba(10,52,102,.92);color:#fff;font:700 10px/1 sans-serif;letter-spacing:.03em;` +
+      `padding:3px 7px;border-radius:999px;white-space:nowrap;box-shadow:0 2px 6px rgba(13,40,84,.4)">` +
+      `${bus.placa}</div>`
+    : "";
+
+  return L.divIcon({
+    html:
+      '<div style="position:relative;width:40px;height:40px">' +
+      '<div style="width:40px;height:40px;border-radius:50%;background:#1565C0;border:3px solid #fff;' +
+      'box-shadow:0 3px 10px rgba(13,40,84,.4);display:flex;align-items:center;justify-content:center;' +
+      'overflow:hidden;box-sizing:border-box">' +
+      interior +
+      "</div>" +
+      placa +
+      "</div>",
+    className: "",
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+  });
+}
 
 // Marcador de parada: solo el número de orden (el detalle va en el popup).
 // Casas en blanco con número azul, transbordo en rojo, escuelas en azul marino.
@@ -58,28 +99,36 @@ function AjustarVista({
   buses,
   recorrido,
   clave,
+  encuadres,
 }: {
   buses: BusEnVivo[];
   recorrido: ParadaRecorrido[];
   clave: string;
+  encuadres: number;
 }) {
   const map = useMap();
   const ultimaClave = useRef<string | null>(null);
+  const ultimoEncuadre = useRef(encuadres);
 
   useEffect(() => {
-    if (ultimaClave.current === clave) return;
+    // Además de cuando cambia el enfoque, se reencuadra cuando Francis lo pide
+    // con el botón. Lo que NO se hace es reencuadrar con cada posición nueva:
+    // los buses mandan la suya cada 15 s y el mapa se le movería de las manos.
+    const pidioAMano = ultimoEncuadre.current !== encuadres;
+    if (ultimaClave.current === clave && !pidioAMano) return;
     const puntos: [number, number][] = [
       ...buses.map((b) => [b.lat, b.lng] as [number, number]),
       ...recorrido.map((p) => [p.lat, p.lng] as [number, number]),
     ];
     if (puntos.length === 0) return;
     ultimaClave.current = clave;
+    ultimoEncuadre.current = encuadres;
     if (puntos.length === 1) {
       map.setView(puntos[0], 15);
     } else {
       map.fitBounds(L.latLngBounds(puntos), { padding: [60, 60], maxZoom: 16 });
     }
-  }, [buses, recorrido, clave, map]);
+  }, [buses, recorrido, clave, encuadres, map]);
 
   return null;
 }
@@ -98,18 +147,22 @@ export default function MapaBuses({
   // Identifica el recorrido por sus coordenadas: si cambia, el camino por calles
   // se vuelve a montar y se recalcula
   const claveRecorrido = recorrido.map((p) => `${p.lat},${p.lng}`).join("|");
+  // Cada clic en "centrar" sube el contador; AjustarVista lo mira para saber que
+  // el reencuadre lo pidió Francis y no un cambio de enfoque
+  const [encuadres, setEncuadres] = useState(0);
 
   return (
+    <div style={{ position: "relative", height: "100%", width: "100%" }}>
     <MapContainer center={CENTRO_LA_CEIBA} zoom={12} style={{ height: "100%", width: "100%" }}>
-      {/* Teselas CARTO Positron: estilo claro, sobre datos de OpenStreetMap */}
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; CARTO'
-        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        subdomains="abcd"
-        maxZoom={20}
-      />
+      {/* El mismo proveedor de teselas que la app móvil, con respaldo (utils/mapa.ts) */}
+      <CapaTeselas />
 
-      <AjustarVista buses={buses} recorrido={recorrido} clave={claveVista} />
+      <AjustarVista
+        buses={buses}
+        recorrido={recorrido}
+        clave={claveVista}
+        encuadres={encuadres}
+      />
 
       {/* El recorrido de la ruta elegida */}
       <CaminoPorCalles key={claveRecorrido} recorrido={recorrido} />
@@ -148,8 +201,8 @@ export default function MapaBuses({
 
       {/* Los buses en viaje */}
       {buses.map((bus) => (
-        <Marker key={bus.viajeId} position={[bus.lat, bus.lng]} icon={iconoBus}>
-          <Tooltip direction="top" offset={[0, -20]}>
+        <Marker key={bus.viajeId} position={[bus.lat, bus.lng]} icon={iconoBus(bus)}>
+          <Tooltip direction="top" offset={[0, -24]}>
             <strong>{bus.titulo}</strong>
             <br />
             {bus.subtitulo}
@@ -157,5 +210,17 @@ export default function MapaBuses({
         </Marker>
       ))}
     </MapContainer>
+
+      {/* Con el mapa vacío no hay nada que encuadrar (ningún bus en la calle y
+          ninguna ruta elegida), así que el botón ni aparece */}
+      {buses.length + recorrido.length > 0 && (
+        <BotonCentrarMapa
+          titulo={
+            recorrido.length > 0 ? "Centrar el mapa en la ruta" : "Centrar el mapa en los buses"
+          }
+          onClick={() => setEncuadres((n) => n + 1)}
+        />
+      )}
+    </div>
   );
 }

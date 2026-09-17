@@ -12,8 +12,8 @@
        Es un archivo estático en public/, NO parte de la app React: así se abre
        sin iniciar sesión y carga al instante en el teléfono de los padres. */
     :root {
-      --azul: #12659E;
-      --azul-oscuro: #0E5384;
+      --marca: #0A6E67;
+      --marca-oscuro: #08574F;
       --amarillo: #F0C24E;
       --texto: #1a1b1e;
       --texto-suave: #5c5f66;
@@ -55,7 +55,7 @@
     .boton {
       display: block;
       width: 100%;
-      background: var(--azul);
+      background: var(--marca);
       color: #fff;
       text-align: center;
       text-decoration: none;
@@ -65,7 +65,7 @@
       border-radius: 10px;
       transition: background 0.15s;
     }
-    .boton:hover { background: var(--azul-oscuro); }
+    .boton:hover { background: var(--marca-oscuro); }
     .boton-nota {
       text-align: center;
       color: var(--texto-suave);
@@ -108,7 +108,7 @@
       top: 1px;
       width: 26px;
       height: 26px;
-      background: var(--azul);
+      background: var(--marca);
       color: #fff;
       border-radius: 50%;
       font-size: 14px;
@@ -135,7 +135,7 @@
       font-size: 13px;
       padding-top: 8px;
     }
-    footer a { color: var(--azul); }
+    footer a { color: var(--marca); }
   </style>
 </head>
 <body>
@@ -183,29 +183,10 @@
     </footer>
   </div>
 
-  <script>
-    // ⬇️ ÚNICO VALOR A CAMBIAR: pegá acá el enlace del APK que imprime
-    //    `eas build --platform android --profile preview` al terminar.
-    //    Compilado el 2026-08-19 (versión 1.0.0, versionCode 1). Incluye el logo
-    //    nuevo, la portada animada y la paleta sacada del logo.
-    //    Ojo: en el plan gratuito, EAS conserva el archivo 30 DÍAS. Si el
-    //    piloto se extiende, recompilá y actualizá este enlace.
-    var ENLACE_APK =
-      "https://expo.dev/artifacts/eas/YwIuOcwwxJEazMjzGAdOIGJBqnLiwojH8XEauGgD1pw.apk";
-
-    var zona = document.getElementById("zona-descarga");
-    if (ENLACE_APK && ENLACE_APK !== "PENDIENTE") {
-      var a = document.createElement("a");
-      a.className = "boton";
-      a.href = ENLACE_APK;
-      a.textContent = "⬇  Descargar la app";
-      zona.appendChild(a);
-    } else {
-      var div = document.createElement("div");
-      div.className = "no-disponible";
-      div.textContent = "La app se está preparando — volvé pronto";
-      zona.appendChild(div);
-    }
-  </script>
+  <!-- El script vive en un archivo aparte (descargar.js) y no acá adentro: la
+       política de seguridad del hosting (firebase.json) no deja ejecutar
+       JavaScript escrito dentro del HTML, que es la vía clásica para inyectar
+       código en una página. El enlace del APK se cambia en descargar.js. -->
+  <script src="/descargar.js"></script>
 </body>
 </html>

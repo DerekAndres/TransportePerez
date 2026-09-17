@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Group,
-  Loader,
   Select,
   Stack,
   Table,
@@ -26,6 +25,7 @@ import {
 } from "../services/reportesService";
 import { descargarCSV } from "../utils/csv";
 import type { Bus, Nino, Registro, Ruta, Usuario, Viaje } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 // Fecha local "YYYY-MM-DD" (mismo formato que Viaje.fecha)
 function fechaISO(fecha: Date): string {
@@ -45,6 +45,16 @@ const ETIQUETA_ESTADO: Record<string, string> = {
   pendiente: "Pendiente",
   en_curso: "En curso",
   finalizado: "Finalizado",
+};
+
+// Los cuatro eventos con su nombre para el CSV. Van todos, incluidos los dos
+// que "no salieron bien": el reporte existe justamente para revisar esos casos,
+// así que esconderlos lo volvería inútil.
+const ETIQUETA_EVENTO_CSV: Record<string, string> = {
+  subio: "Subió",
+  bajo: "Bajó",
+  no_estaba: "No estaba en la parada",
+  anulado: "Marca corregida por el conductor",
 };
 
 interface FilaViaje {
@@ -90,7 +100,7 @@ export default function ReportesScreen() {
   }, []);
 
   if (cargandoCatalogos) {
-    return <Loader />;
+    return <CargandoBus texto="Cargando…" />;
   }
 
   return (
@@ -359,7 +369,7 @@ function ReportePorNino({
         </Button>
       </Group>
 
-      {cargando && <Loader />}
+      {cargando && <CargandoBus texto="Generando el reporte…" />}
 
       {filas && !cargando && (
         <>
@@ -422,7 +432,7 @@ async function construirHistorial(
     filas.push({
       fecha: viaje?.fecha ?? fechaISO(fechaTs),
       rutaNombre: viaje ? (rutasPorId.get(viaje.rutaId)?.nombre ?? "Ruta") : "—",
-      evento: r.evento === "subio" ? "Subió" : "Bajó",
+      evento: ETIQUETA_EVENTO_CSV[r.evento] ?? r.evento,
       hora: horaCorta(r.hora),
     });
   }

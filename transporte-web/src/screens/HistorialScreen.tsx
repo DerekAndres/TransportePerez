@@ -6,7 +6,6 @@ import {
   Button,
   Card,
   Group,
-  Loader,
   SegmentedControl,
   Stack,
   Table,
@@ -26,8 +25,13 @@ import {
   restaurarUsuario,
 } from "../services/usuariosService";
 import { listarNinos, restaurarNino } from "../services/ninosService";
+import {
+  AVISO_ACCESOS_PENDIENTES,
+  recalcularAccesosDespuesDeGuardar,
+} from "../services/accesoConductoresService";
 import { listarEscuelas } from "../services/escuelasService";
 import type { Escuela, Nino, Usuario } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 // Fecha y hora legibles de un archivado
 function cuando(momento?: { toDate: () => Date }): string {
@@ -92,6 +96,10 @@ export default function HistorialScreen() {
             ? "Padre restaurado junto con sus hijos."
             : "Conductor restaurado.",
       });
+      // Un conductor restaurado vuelve a ver a los niños de su unidad
+      if (usuario.rol === "conductor" && !(await recalcularAccesosDespuesDeGuardar())) {
+        notifications.show(AVISO_ACCESOS_PENDIENTES);
+      }
       cargar();
     } catch {
       notifications.show({ color: "red", message: "No se pudo restaurar." });
@@ -114,7 +122,7 @@ export default function HistorialScreen() {
   };
 
   if (!usuarios) {
-    return <Loader />;
+    return <CargandoBus texto="Cargando el archivo…" />;
   }
 
   // Tabla de padres o conductores

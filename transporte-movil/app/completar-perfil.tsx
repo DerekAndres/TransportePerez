@@ -18,19 +18,22 @@ import { useAlturaTeclado } from '@/hooks/use-teclado';
 import { completarRegistro } from '@/services/authService';
 import { elegirFotoComprimida } from '@/utils/fotos';
 import { ESPACIO, RADIO, SOMBRA_TARJETA, fondoTarjeta } from '@/constants/estilos';
-import { FRANJA_TROPICAL } from '@/constants/tema';
+import { FRANJA_ESPECULAR, FUENTES } from '@/constants/tema';
 
 // Alta del usuario, primera vez que entra. La contraseña ya la definió con el
 // enlace que le envió Firebase; acá completa lo que ese enlace no puede pedirle:
 // su teléfono (lo necesita el conductor) y su foto. Hasta que no lo termine, la
 // app no lo deja pasar a su sección — por eso no hay botón de "volver".
+//
+// El NOMBRE se muestra pero no se edita: lo carga la administración al crear la
+// cuenta, y las reglas de Firestore no dejan que cada usuario se lo cambie. Así
+// nadie puede renombrarse "Administración" para confundir a otros en el chat.
 export default function CompletarPerfilScreen() {
   const { usuario, cargando, logout, refrescarPerfil } = useAuth();
   const tema = useTheme();
   const insets = useSafeAreaInsets();
   const altoTeclado = useAlturaTeclado();
 
-  const [nombre, setNombre] = useState(usuario?.nombre ?? '');
   const [telefono, setTelefono] = useState(usuario?.telefono ?? '');
   const [foto, setFoto] = useState<string | null>(usuario?.foto ?? null);
   const [error, setError] = useState('');
@@ -48,10 +51,6 @@ export default function CompletarPerfilScreen() {
 
   const guardar = async () => {
     setError('');
-    if (!nombre.trim()) {
-      setError('Escribí tu nombre completo.');
-      return;
-    }
     if (!telefono.trim()) {
       setError('Escribí tu teléfono: lo necesita el conductor para contactarte.');
       return;
@@ -59,7 +58,6 @@ export default function CompletarPerfilScreen() {
     setGuardando(true);
     try {
       await completarRegistro(usuario.id, {
-        nombre: nombre.trim(),
         telefono: telefono.trim(),
         ...(foto ? { foto } : {}),
       });
@@ -94,9 +92,9 @@ export default function CompletarPerfilScreen() {
             {usuario.rol === 'conductor' ? 'Conductor' : 'Padre / Madre'} · solo esta vez
           </Text>
         </View>
-        {/* Franja de marca coral · mango · aqua */}
+        {/* Franja de marca: zafiro (en vivo) · ámbar (aviso) · cian (telemetría) */}
         <View style={styles.franja}>
-          {FRANJA_TROPICAL.map((color) => (
+          {FRANJA_ESPECULAR.map((color: string) => (
             <View key={color} style={[styles.tramoFranja, { backgroundColor: color }]} />
           ))}
         </View>
@@ -110,7 +108,7 @@ export default function CompletarPerfilScreen() {
               ) : (
                 <Avatar.Text
                   size={72}
-                  label={nombre.trim().charAt(0).toUpperCase() || '?'}
+                  label={usuario.nombre.trim().charAt(0).toUpperCase() || '?'}
                   style={{ backgroundColor: tema.colors.primaryContainer }}
                   color={tema.colors.onPrimaryContainer}
                 />
@@ -131,10 +129,13 @@ export default function CompletarPerfilScreen() {
 
           <Campo
             label="Nombre completo"
-            value={nombre}
-            onChangeText={setNombre}
+            value={usuario.nombre}
+            editable={false}
             left={<TextInput.Icon icon="account-outline" />}
           />
+          <Text variant="bodySmall" style={styles.nota}>
+            Si tu nombre está mal escrito, avisale a la administración para que lo corrija.
+          </Text>
 
           <Campo
             label="Teléfono"
@@ -183,7 +184,7 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     paddingHorizontal: 24,
   },
-  titulo: { fontWeight: '700' },
+  titulo: { fontFamily: FUENTES.textoNegrita },
   lema: { opacity: 0.85 },
   franja: { flexDirection: 'row', height: 6 },
   tramoFranja: { flex: 1 },
@@ -200,6 +201,7 @@ const styles = StyleSheet.create({
   filaFoto: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 4 },
   botonCamara: { position: 'absolute', bottom: -10, right: -14 },
   ayuda: { flex: 1, opacity: 0.6 },
+  nota: { opacity: 0.6, marginTop: -4 },
   seccion: { opacity: 0.7, marginTop: 6 },
   contenidoBoton: { paddingVertical: 6 },
 });

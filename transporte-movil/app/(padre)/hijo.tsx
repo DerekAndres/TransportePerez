@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import {
-  ActivityIndicator,
   Avatar,
   Button,
   Text,
@@ -12,6 +11,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import PantallaBase from '@/components/PantallaBase';
+import PastillaEstado from '@/components/PastillaEstado';
 import Tarjeta from '@/components/Tarjeta';
 import TituloSeccion from '@/components/TituloSeccion';
 import {
@@ -25,7 +25,9 @@ import {
 import { fechaDeHoy, turnoActual } from '@/services/viajesService';
 import { elegirFotoComprimida } from '@/utils/fotos';
 import { ALTURA, ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
+import { FUENTES } from '@/constants/tema';
 import type { Bus, Nino, Ruta, TurnoNino, Viaje } from '@/types/models';
+import CargandoBus from '@/components/CargandoBus';
 
 // Perfil de un hijo: todos sus datos en una sola pantalla, para que el padre
 // pueda revisar de un vistazo lo que la administración tiene cargado de él (su
@@ -161,7 +163,7 @@ export default function PerfilHijoScreen() {
     return (
       <PantallaBase titulo="Perfil" alVolver={() => router.back()} scroll={false}>
         <View style={estilosBase.centrado}>
-          <ActivityIndicator size="large" />
+          <CargandoBus texto="Cargando el perfil…" />
         </View>
       </PantallaBase>
     );
@@ -205,11 +207,7 @@ export default function PerfilHijoScreen() {
                 {nino.grado} · {escuelaNombre}
               </Text>
               {nino.turno && (
-                <View style={[styles.pastilla, { backgroundColor: tema.colors.primaryContainer }]}>
-                  <Text variant="labelSmall" style={{ color: tema.colors.onPrimaryContainer }}>
-                    {ETIQUETA_TURNO[nino.turno]}
-                  </Text>
-                </View>
+                <PastillaEstado texto={ETIQUETA_TURNO[nino.turno]} tono="vivo" />
               )}
               <Text variant="bodySmall" style={estilosBase.tenue}>
                 Tocá la foto para cambiarla
@@ -309,9 +307,8 @@ export default function PerfilHijoScreen() {
 
 const styles = StyleSheet.create({
   encabezado: { alignItems: 'center', gap: ESPACIO.minimo },
-  negrita: { fontWeight: '700' },
+  negrita: { fontFamily: FUENTES.textoNegrita },
   avatarToque: { borderRadius: 46 },
-  pastilla: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIO.pastilla },
   filaDato: { flexDirection: 'row', alignItems: 'flex-start', gap: ESPACIO.interno },
   circulo: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   textoDato: { flex: 1, gap: 1 },

@@ -18,6 +18,8 @@ import { IconCheck, IconMapPin, IconX } from "@tabler/icons-react";
 
 import {
   aprobarCambio,
+  aprobarCambioEscuela,
+  aprobarCambioTurno,
   aprobarInscripcion,
   escucharSolicitudes,
   rechazarSolicitud,
@@ -114,6 +116,20 @@ export default function SolicitudesScreen() {
             "Inscripción aprobada: el niño quedó creado. Recordá asignarle ruta en la sección Rutas.",
           color: "blue",
         });
+      } else if (solicitud.tipo === "cambio_escuela") {
+        await aprobarCambioEscuela(solicitud, respuesta.trim() || undefined);
+        notifications.show({
+          message:
+            "Escuela actualizada. REVISÁ SU RUTA: puede haber quedado en un bus que ya no pasa por su colegio nuevo.",
+          color: "orange",
+        });
+      } else if (solicitud.tipo === "cambio_turno") {
+        await aprobarCambioTurno(solicitud, respuesta.trim() || undefined);
+        notifications.show({
+          message:
+            "Turno actualizado. REVISÁ SUS RUTAS: cada ruta tiene su turno, así que puede faltar sumarlo a una.",
+          color: "orange",
+        });
       } else {
         await aprobarCambio(solicitud, respuesta.trim() || undefined);
         notifications.show({ message: "Cambio de ubicación aprobado.", color: "blue" });
@@ -141,7 +157,13 @@ export default function SolicitudesScreen() {
               <Text fw={600}>
                 {s.tipo === "inscripcion"
                   ? `Inscripción: ${s.datosNino?.nombre ?? "—"}`
-                  : `Cambio de ubicación: ${nombreNino(s.ninoId)}`}
+                  : s.tipo === "cambio_escuela"
+                    ? `Cambio de escuela: ${nombreNino(s.ninoId)}`
+                    : s.tipo === "cambio_turno"
+                      ? `Cambio de turno: ${nombreNino(s.ninoId)}`
+                      : s.tipo === "ausencia_dia"
+                        ? `No viaja el ${s.fechaAplicacion}: ${nombreNino(s.ninoId)}`
+                        : `Cambio de ubicación: ${nombreNino(s.ninoId)}`}
               </Text>
               <Text size="sm" c="dimmed">
                 Padre: {nombrePadre(s.padreId)} · {s.creadaEn.toDate().toLocaleString("es-HN")}
@@ -197,6 +219,29 @@ export default function SolicitudesScreen() {
             </Text>
             {referencias(s.nuevaUbicacion)}
           </>
+        )}
+
+        {s.tipo === "cambio_escuela" && (
+          <Text size="sm">
+            Nueva escuela: <b>{nombreEscuela(s.nuevaEscuelaId)}</b>
+            {s.fechaAplicacion && ` · Desde: ${s.fechaAplicacion}`}
+            {s.motivo && ` · Motivo: ${s.motivo}`}
+          </Text>
+        )}
+
+        {s.tipo === "cambio_turno" && (
+          <Text size="sm">
+            Nuevo turno: <b>{ETIQUETA_TURNO[s.nuevoTurno ?? "ambos"]}</b>
+            {s.fechaAplicacion && ` · Desde: ${s.fechaAplicacion}`}
+            {s.motivo && ` · Motivo: ${s.motivo}`}
+          </Text>
+        )}
+
+        {s.tipo === "ausencia_dia" && (
+          <Text size="sm" c="dimmed">
+            Aviso del padre, no requiere aprobación. El conductor ya lo ve en su ruta.
+            {s.motivo && ` Motivo: ${s.motivo}`}
+          </Text>
         )}
 
         {s.respuesta && (

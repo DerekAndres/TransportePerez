@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Button, Card, List, Progress, Stack, Text, Title } from "@mantine/core";
-import { IconAlertTriangle, IconRefresh } from "@tabler/icons-react";
+import { Button, Card, Divider, List, Progress, Stack, Text, Title } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
+import { IconAlertTriangle, IconKey, IconRefresh } from "@tabler/icons-react";
 import { migrarRutas, type ResumenMigracion } from "../services/migracionService";
+import { recalcularAccesosConductores } from "../services/accesoConductoresService";
 
 // Herramienta de un solo uso: convierte las rutas al formato nuevo (paradas +
 // transbordo). Es idempotente, así que se puede correr varias veces sin problema.
@@ -10,6 +12,7 @@ export default function MigracionScreen() {
   const [progreso, setProgreso] = useState({ procesadas: 0, total: 0 });
   const [resumen, setResumen] = useState<ResumenMigracion | null>(null);
   const [error, setError] = useState("");
+  const [recalculando, setRecalculando] = useState(false);
 
   const correr = async () => {
     setCorriendo(true);
@@ -25,6 +28,27 @@ export default function MigracionScreen() {
       );
     } finally {
       setCorriendo(false);
+    }
+  };
+
+  // Se hace sola al guardar rutas, unidades y suplencias, y una vez por día al
+  // abrir el panel. Este botón es para forzarla (por ejemplo, la primera vez
+  // después de publicar las reglas nuevas, o si un guardado quedó a medias).
+  const recalcular = async () => {
+    setRecalculando(true);
+    try {
+      const { actualizados } = await recalcularAccesosConductores();
+      notifications.show({
+        color: "green",
+        message:
+          actualizados > 0
+            ? `Listo: se actualizaron ${actualizados} niño(s).`
+            : "Listo: ya estaba todo al día.",
+      });
+    } catch {
+      notifications.show({ color: "red", message: "No se pudieron recalcular los accesos." });
+    } finally {
+      setRecalculando(false);
     }
   };
 
@@ -83,6 +107,26 @@ export default function MigracionScreen() {
           </Stack>
         </Card>
       )}
+
+      <Divider my="sm" />
+
+      <Title order={4}>Qué niños ve cada conductor</Title>
+      <Text c="dimmed" size="sm">
+        Por seguridad, cada conductor solo puede leer en su app a los niños que lleva: los de las
+        rutas de su unidad, más los de la unidad que cubre si tiene una suplencia. Esa lista se
+        recalcula sola al guardar rutas, unidades o suplencias, y una vez por día al abrir el panel.
+        Usá este botón la primera vez que se publiquen las reglas nuevas, o si un conductor dice que
+        le falta un niño en su lista.
+      </Text>
+      <Button
+        leftSection={<IconKey size={16} />}
+        variant="light"
+        onClick={recalcular}
+        loading={recalculando}
+        w="fit-content"
+      >
+        Recalcular accesos ahora
+      </Button>
     </Stack>
   );
 }

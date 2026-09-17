@@ -1,86 +1,61 @@
 import { useEffect, useRef, useState } from 'react';
-import * as Location from 'expo-location';
 
-import { actualizarUbicacion } from '@/services/ubicacionesService';
+import { escucharPosiciones, iniciarGps, type ViajeConGps } from '@/services/gpsViaje';
 
-export type EstadoGps = 'inactivo' | 'activo' | 'sin_permiso' | 'error';
+// 'solo_app_abierta' = el GPS funciona, pero únicamente con la app en pantalla
+// (Expo Go, o un teléfono que no dejó arrancar la tarea de fondo)
+export type EstadoGps = 'inactivo' | 'activo' | 'solo_app_abierta' | 'sin_permiso' | 'error';
 
-// Emite la ubicación del bus mientras haya un viaje en curso.
-// Recibe el id del viaje activo (o null si no hay ninguno) y devuelve el
-// estado del GPS para mostrarlo en pantalla.
+// Emite la ubicación del bus mientras haya un viaje en curso (ver
+// services/gpsViaje.ts: tarea de fondo con respaldo en primer plano). Recibe el
+// viaje (o null si no hay ninguno) y devuelve el estado del GPS para mostrarlo.
 //
-// Throttle: aunque el sistema entregue posiciones seguido, solo se escribe en
-// Firestore como máximo una vez cada 15 segundos — el tracking no necesita más
-// precisión y así no se agota la cuota de escrituras del plan gratuito.
-const INTERVALO_MINIMO_MS = 15000;
-
-// `onPosicion` (opcional) se llama con cada posición emitida (misma cadencia que
-// la escritura, cada ~15 s). Fase 6 lo usa para el aviso de proximidad.
+// A propósito NO detiene el GPS cuando la pantalla se desmonta: el conductor
+// puede ir a Mensajes o bloquear el teléfono con el viaje en curso y el bus
+// tiene que seguir apareciendo en el mapa del padre. Se detiene solo al
+// FINALIZAR el viaje (detenerGps, desde la pantalla del conductor).
+//
+// `onPosicion` (opcional) se llama con cada posición emitida (~cada 15 s)
+// mientras la pantalla está montada. Fase 6 lo usa para el aviso de proximidad.
 export function useEmisionUbicacion(
-  viajeId: string | null,
+  viaje: ViajeConGps | null,
   onPosicion?: (lat: number, lng: number) => void
 ): EstadoGps {
   const [estado, setEstado] = useState<EstadoGps>('inactivo');
-  const ultimaEscritura = useRef(0);
 
   // El callback vive en un ref para usar siempre la versión más reciente sin
-  // reiniciar el watcher del GPS (el efecto de abajo solo depende del viaje)
+  // volver a suscribirse en cada dibujo de la pantalla
   const onPosicionRef = useRef(onPosicion);
   useEffect(() => {
     onPosicionRef.current = onPosicion;
   });
 
+  useEffect(() => escucharPosiciones((lat, lng) => onPosicionRef.current?.(lat, lng)), []);
+
+  // El objeto `viaje` se arma de nuevo en cada dibujo; lo que importa es su
+  // contenido: el viaje y la lista de padres que pueden ver la posición
+  const clave = viaje ? `${viaje.viajeId}|${viaje.padreIds.join(',')}` : '';
+
   useEffect(() => {
-    if (!viajeId) {
+    if (!viaje) {
       setEstado('inactivo');
       return;
     }
-
-    let subscripcion: Location.LocationSubscription | null = null;
-    let cancelado = false; // evita setState si el efecto ya se limpió
-
-    const iniciar = async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        if (!cancelado) setEstado('sin_permiso');
-        return;
-      }
-
-      try {
-        subscripcion = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.Balanced,
-            timeInterval: 20000, // pista para el sistema operativo (Android)
-            distanceInterval: 20, // metros mínimos entre lecturas (iOS)
-          },
-          (posicion) => {
-            const ahora = Date.now();
-            if (ahora - ultimaEscritura.current < INTERVALO_MINIMO_MS) return;
-            ultimaEscritura.current = ahora;
-            actualizarUbicacion(
-              viajeId,
-              posicion.coords.latitude,
-              posicion.coords.longitude
-            ).catch(() => {
-              // Si una escritura falla (ej. sin señal), la próxima lectura reintenta
-            });
-            onPosicionRef.current?.(posicion.coords.latitude, posicion.coords.longitude);
-          }
-        );
-        if (!cancelado) setEstado('activo');
-      } catch {
+    let cancelado = false;
+    iniciarGps(viaje)
+      .then((resultado) => {
+        if (cancelado) return;
+        setEstado(resultado === 'segundo_plano' ? 'activo' : resultado);
+      })
+      .catch(() => {
         if (!cancelado) setEstado('error');
-      }
-    };
-
-    iniciar();
-
+      });
     return () => {
       cancelado = true;
-      subscripcion?.remove();
-      setEstado('inactivo');
     };
-  }, [viajeId]);
+    // `viaje` entra por `clave`: alcanza con reaccionar a su contenido
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clave]);
 
   return estado;
 }

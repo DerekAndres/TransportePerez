@@ -7,7 +7,9 @@
 >
 > **Qué está verificado y qué no.** Todo lo marcado como *(verificado)* se leyó
 > de los archivos reales del proyecto o de la fuente oficial, con fecha
-> 2026-08-20. Lo marcado como *(estimación)* son supuestos de trabajo que
+> 2026-08-20; las **versiones de software de la sección 5.7.3 se actualizaron el
+> 2026-09-03**, cuando el proyecto migró de Expo SDK 54 a SDK 57.
+> Lo marcado como *(estimación)* son supuestos de trabajo que
 > **tenés que validar con Francis Perez** antes de ponerlos en el informe: yo no
 > conozco el tamaño real de la flota ni la cantidad de estudiantes.
 
@@ -144,19 +146,28 @@ solicitar un cambio de lugar de recogida o entrega.
 Esta subsección es valiosa en la defensa, porque conecta las características de
 los usuarios con decisiones concretas y medibles.
 
+- **La paleta sale del lugar donde opera el servicio.** La empresa presta
+  servicio en La Ceiba, El Porvenir, El Pino y La Unión, todas sobre la costa
+  atlántica de Honduras. De ahí salen el **turquesa del mar** (color de marca) y
+  el **verde de la vegetación**. No es una elección estética: es una identidad
+  geográfica, y por eso puede defenderse.
 - **Contraste verificado contra la norma WCAG AA (4.5:1).** Los cuatro colores
-  de estado del sistema fueron medidos sobre fondo blanco *(verificado:
-  `constants/tema.ts`)*: azul 6.21:1, verde 5.28:1, ámbar 5.87:1 y rojo 8.16:1.
-  Todos superan el mínimo, lo que importa en un teléfono usado **a plena luz
-  solar** dentro de un bus.
-- **El color nunca comunica solo.** El azul (en curso) y el verde (completado)
-  tienen luminancia casi idéntica (contraste de 1.12:1 entre sí), o sea que se
-  distinguen por tono pero no por claridad. Por eso todo estado va acompañado de
-  **un ícono y una palabra**: quien no distingue esos tonos igual entiende la
-  pantalla. Es una limitación **detectada, documentada y mitigada**, no un
-  descuido.
-- **Semántica de color convencional:** azul "está pasando ahora" → verde "ya se
-  cumplió", que es la convención que la mayoría de la gente ya conoce.
+  de estado fueron medidos sobre fondo blanco *(verificado: `constants/tema.ts`)*:
+  turquesa 6.10:1, verde 5.76:1, ámbar 5.87:1 y rojo 8.16:1. Todos superan el
+  mínimo, lo que importa en un teléfono usado **a plena luz solar** dentro de un
+  bus.
+- **Los dos estados principales se separan por TONO, no por claridad.** El
+  turquesa (en curso) y el verde (completado) tienen luminancias parecidas
+  —el contraste entre ellos es de apenas 1.06:1— pero están a unos **86° de
+  tono** de distancia, que es lo que los vuelve distinguibles. Aun así, **el
+  color nunca comunica solo**: todo estado va acompañado de un ícono y una
+  palabra, para quien no distingue esos tonos. Es una limitación **detectada,
+  documentada y mitigada**, no un descuido.
+- **Una decisión de diseño que conviene contar:** el verde de "completado" tuvo
+  que cambiar de tono al adoptar la marca turquesa. El verde anterior era
+  azulado y quedaba a unos 13° del color de marca, con lo que los dos estados se
+  confundían; se movió a un verde amarillento, a 86°. Es un ejemplo concreto de
+  cómo una restricción de accesibilidad obligó a modificar la paleta.
 - **Todo el texto visible está en español**, igual que los campos de la base de
   datos, por decisión de estándar de código.
 - **Orientación vertical fija** y adaptación a teléfonos con barra de gestos o
@@ -474,7 +485,7 @@ informe porque es una decisión de arquitectura, no una omisión.
 | --- | --- | --- |
 | Sistema operativo | **Android 7.0 (API 24)** o superior | *(verificado: `minSdkVersion 24` en el complemento de Gradle de Expo Modules Core)* |
 | Versión objetivo de compilación | Android 16 (API 36) | *(verificado: `compileSdkVersion`/`targetSdkVersion 36`)* |
-| iOS (soportado, no es el entregable) | **iOS 15.1** o superior | *(verificado: `min_ios_version_supported` en los scripts de React Native 0.81.5)* |
+| iOS (soportado, no es el entregable) | **iOS 16.4** o superior | *(el mínimo subió de 15.1 a 16.4 en Expo SDK 56; ver el registro de cambios oficial)* |
 | Servicios de Google Play | **Requeridos** para recibir notificaciones push | — |
 | Receptor GPS | **Obligatorio en el teléfono del conductor** | — |
 | Memoria RAM | 2 GB | — |
@@ -504,19 +515,19 @@ informe porque es una decisión de arquitectura, no una omisión.
 
 | Biblioteca | Versión | Función |
 | --- | --- | --- |
-| Expo SDK | 54.0.34 | Plataforma de desarrollo |
-| React Native | 0.81.5 | Marco de trabajo móvil |
-| React | 19.1.0 | Biblioteca de interfaz |
-| expo-router | 6.0.23 | Navegación basada en archivos |
+| Expo SDK | 57.0.19 | Plataforma de desarrollo |
+| React Native | 0.86.3 | Marco de trabajo móvil |
+| React | 19.2.3 | Biblioteca de interfaz |
+| expo-router | 57.0.18 | Navegación basada en archivos |
 | react-native-paper | 5.15.3 | Componentes de interfaz (Material Design) |
-| expo-location | 19.0.8 | Acceso al GPS |
-| expo-notifications | 0.32.17 | Notificaciones push |
-| react-native-webview | 13.15.0 | Contenedor del mapa Leaflet |
-| react-native-reanimated | 4.1.1 | Animaciones |
-| expo-image-picker / expo-image-manipulator | 17.0.11 / 14.0.8 | Selección y compresión de fotos |
+| expo-location | 57.0.15 | Acceso al GPS |
+| expo-notifications | 57.0.16 | Notificaciones push |
+| react-native-webview | 13.16.1 | Contenedor del mapa Leaflet |
+| react-native-reanimated | 4.5.1 | Animaciones |
+| expo-image-picker / expo-image-manipulator | 57.0.15 / 57.0.15 | Selección y compresión de fotos |
 | @react-native-async-storage/async-storage | 2.2.0 | Persistencia local (sesión y cola de avisos) |
 | firebase | 12.15.0 | Cliente de Firestore y Authentication |
-| TypeScript | 5.9.2 | Lenguaje con tipado estático |
+| TypeScript | 6.0.3 | Lenguaje con tipado estático |
 
 > Coherencia entre plataformas: ambos proyectos usan **la misma versión del
 > cliente de Firebase (12.15.0)** y **el mismo archivo de modelo de datos**,
@@ -560,7 +571,7 @@ explica el motivo, como exige la revisión de las tiendas de aplicaciones.
   `package.json` de ambos proyectos.
 - Precios y cuotas de Firebase: https://firebase.google.com/pricing
   (consultado el 2026-08-20).
-- Documentación de Expo SDK 54: https://docs.expo.dev
+- Documentación de Expo SDK 57: https://docs.expo.dev/versions/v57.0.0/
 - Pauta de contraste WCAG 2.1, criterio 1.4.3 (nivel AA).
 - Documentación interna del proyecto: `CLAUDE.md`, `ESTADO-ACTUAL.md`,
   `docs/notificaciones.md`, `docs/despliegue.md`, `docs/casos-de-prueba.md`,

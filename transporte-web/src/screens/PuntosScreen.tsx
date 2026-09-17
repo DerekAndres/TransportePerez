@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Group,
-  Loader,
   Modal,
+  Select,
   Stack,
   Switch,
   Table,
@@ -22,7 +22,16 @@ import {
   crearPunto,
   listarPuntos,
 } from "../services/puntosService";
+import FiltrosCatalogo, { PiePaginacion } from "../components/FiltrosCatalogo";
+import { usePaginacion } from "../hooks/use-paginacion";
+import {
+  filtrarPorEstado,
+  filtrarTexto,
+  OPCIONES_ESTADO,
+  type FiltroEstado,
+} from "../utils/filtros";
 import type { Punto } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 // Puntos de transbordo: lugares donde los niños cambian de bus. Misma pantalla que
 // Escuelas (tabla + modal con mapa de un marcador).
@@ -32,6 +41,17 @@ export default function PuntosScreen() {
   const [editando, setEditando] = useState<Punto | null>(null);
   const [ubicacion, setUbicacion] = useState<{ lat: number; lng: number } | null>(null);
   const [guardando, setGuardando] = useState(false);
+
+  // --- Filtros de la tabla ---
+  const [busqueda, setBusqueda] = useState("");
+  const [estado, setEstado] = useState<FiltroEstado>("activos");
+
+  const filtrados = useMemo(() => {
+    const base = filtrarPorEstado(puntos ?? [], estado, (p) => p.activo);
+    return filtrarTexto(base, busqueda, (p) => [p.nombre]);
+  }, [puntos, busqueda, estado]);
+
+  const pag = usePaginacion(filtrados);
   const [error, setError] = useState("");
 
   const form = useForm({
@@ -125,7 +145,7 @@ export default function PuntosScreen() {
   }
 
   if (!puntos) {
-    return <Loader />;
+    return <CargandoBus texto="Cargando los puntos…" />;
   }
 
   return (
@@ -141,6 +161,27 @@ export default function PuntosScreen() {
         Lugares donde un niño cambia de un bus a otro. Se usan al armar rutas con transbordo.
       </Text>
 
+      <FiltrosCatalogo
+        busqueda={busqueda}
+        onBusqueda={setBusqueda}
+        placeholder="Nombre del punto"
+        mostrados={filtrados.length}
+        total={puntos.length}
+        onLimpiar={() => {
+          setBusqueda("");
+          setEstado("activos");
+        }}
+      >
+        <Select
+          label="Estado"
+          data={OPCIONES_ESTADO}
+          value={estado}
+          onChange={(v) => setEstado((v as FiltroEstado) ?? "activos")}
+          w={150}
+          allowDeselect={false}
+        />
+      </FiltrosCatalogo>
+
       <Table striped highlightOnHover>
         <Table.Thead>
           <Table.Tr>
@@ -151,7 +192,7 @@ export default function PuntosScreen() {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {puntos.map((punto) => (
+          {pag.visibles.map((punto) => (
             <Table.Tr key={punto.id}>
               <Table.Td>{punto.nombre}</Table.Td>
               <Table.Td>
@@ -174,17 +215,25 @@ export default function PuntosScreen() {
               </Table.Td>
             </Table.Tr>
           ))}
-          {puntos.length === 0 && (
+          {filtrados.length === 0 && (
             <Table.Tr>
               <Table.Td colSpan={4}>
-                <Text c="dimmed" ta="center">
-                  Todavía no hay puntos registrados.
+                <Text c="dimmed" ta="center" py="lg" size="sm">
+                  {puntos.length === 0
+                    ? "Todavía no hay puntos registrados."
+                    : "Ningún punto coincide con la búsqueda."}
                 </Text>
               </Table.Td>
             </Table.Tr>
           )}
         </Table.Tbody>
       </Table>
+
+      <PiePaginacion
+        pagina={pag.pagina}
+        totalPaginas={pag.totalPaginas}
+        onPagina={pag.setPagina}
+      />
 
       <Modal
         opened={modalAbierto}

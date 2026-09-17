@@ -22,14 +22,31 @@ export async function listarViajesEnRango(desde: string, hasta: string): Promise
 // --- Niños transportados en un viaje ---
 // = niños DISTINTOS que subieron al bus en ese viaje. Se leen los 'registros' del
 // viaje (igualdad por viajeId) y se cuentan los ninoId únicos con evento 'subio'.
+//
+// ⚠️ Hay que descartar las marcas que el conductor DESHIZO. Si marcó "subió" por
+// error y lo corrigió, ese niño nunca viajó: contarlo inflaría el reporte, que
+// es justamente el número que la empresa mira. Un registro 'anulado' tacha al
+// anterior del mismo niño, así que se procesa cada niño por separado y en orden
+// (misma lógica que `registrosEfectivos` del móvil).
 export async function contarNinosTransportados(viajeId: string): Promise<number> {
   const snap = await getDocs(query(collection(db, "registros"), where("viajeId", "==", viajeId)));
-  const subieron = new Set<string>();
-  snap.docs.forEach((d) => {
-    const registro = d.data() as Registro;
-    if (registro.evento === "subio") subieron.add(registro.ninoId);
+  const registros = snap.docs
+    .map((d) => d.data() as Registro)
+    .sort((a, b) => a.hora.toMillis() - b.hora.toMillis());
+
+  const porNino = new Map<string, Registro[]>();
+  registros.forEach((r) => {
+    const pila = porNino.get(r.ninoId) ?? [];
+    if (r.evento === "anulado") pila.pop();
+    else pila.push(r);
+    porNino.set(r.ninoId, pila);
   });
-  return subieron.size;
+
+  let subieron = 0;
+  porNino.forEach((pila) => {
+    if (pila.some((r) => r.evento === "subio")) subieron += 1;
+  });
+  return subieron;
 }
 
 // --- Historial de asistencia de un niño: todos sus registros ---

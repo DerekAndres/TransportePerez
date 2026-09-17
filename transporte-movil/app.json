@@ -6,8 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "transportemovil",
-    "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "userInterfaceStyle": "dark",
     "ios": {
       "bundleIdentifier": "com.derekperez.transporteperez",
       "supportsTablet": true
@@ -16,11 +15,10 @@
       "package": "com.derekperez.transporteperez",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "backgroundColor": "#FFFFFF",
+        "backgroundColor": "#0F131D",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
@@ -33,16 +31,22 @@
     },
     "plugins": [
       "expo-router",
+      "expo-font",
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser",
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Se usa tu ubicación durante el viaje para que los padres vean el bus en tiempo real, y para marcar en el mapa el lugar donde se recoge a tu hijo."
+          "locationWhenInUsePermission": "Se usa tu ubicación durante el viaje para que los padres vean el bus en tiempo real, y para marcar en el mapa el lugar donde se recoge a tu hijo.",
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
         }
       ],
       [
         "expo-notifications",
         {
-          "color": "#12659E",
+          "color": "#2563EB",
           "defaultChannel": "default"
         }
       ],
@@ -52,9 +56,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 240,
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF",
+          "backgroundColor": "#0F131D",
           "dark": {
-            "backgroundColor": "#141211"
+            "backgroundColor": "#0F131D"
           }
         }
       ]

@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Avatar,
   Button,
   FileInput,
   Group,
   Image,
-  Loader,
   Modal,
   NumberInput,
   Select,
@@ -27,8 +26,23 @@ import {
   listarBuses,
 } from "../services/busesService";
 import { listarUsuarios } from "../services/usuariosService";
+import {
+  AVISO_ACCESOS_PENDIENTES,
+  recalcularAccesosDespuesDeGuardar,
+} from "../services/accesoConductoresService";
+import Sugerencias from "../components/Sugerencias";
+import { enumerar, plural } from "../utils/texto";
 import { comprimirImagen } from "../utils/imagen";
+import FiltrosCatalogo, { PiePaginacion } from "../components/FiltrosCatalogo";
+import { usePaginacion } from "../hooks/use-paginacion";
+import {
+  filtrarPorEstado,
+  filtrarTexto,
+  OPCIONES_ESTADO,
+  type FiltroEstado,
+} from "../utils/filtros";
 import type { Bus, Usuario } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 export default function BusesScreen() {
   const [buses, setBuses] = useState<Bus[] | null>(null);
@@ -36,6 +50,21 @@ export default function BusesScreen() {
   const [modalAbierto, { open, close }] = useDisclosure(false);
   const [editando, setEditando] = useState<Bus | null>(null);
   const [guardando, setGuardando] = useState(false);
+
+  // --- Filtros de la tabla ---
+  const [busqueda, setBusqueda] = useState("");
+  const [estado, setEstado] = useState<FiltroEstado>("activos");
+
+  // Se busca por placa Y por nombre del conductor: el admin piensa en "el bus
+  // de Marlon" tanto como en "PRU-001". El nombre se resuelve acá dentro y no
+  // con el ayudante de abajo, porque ese vive despues del return temprano.
+  const filtrados = useMemo(() => {
+    const nombrePorId = new Map(conductores.map((c) => [c.id, c.nombre]));
+    const base = filtrarPorEstado(buses ?? [], estado, (b) => b.activo);
+    return filtrarTexto(base, busqueda, (b) => [b.placa, nombrePorId.get(b.conductorId)]);
+  }, [buses, conductores, busqueda, estado]);
+
+  const pag = usePaginacion(filtrados);
   // Foto de la unidad (data-URI comprimida); el padre la ve en su app
   const [foto, setFoto] = useState<string | null>(null);
 
@@ -105,6 +134,10 @@ export default function BusesScreen() {
         notifications.show({ color: "green", message: "Bus creado." });
       }
       close();
+      // Quién maneja la unidad decide a qué niños ve cada conductor en su app
+      if (!(await recalcularAccesosDespuesDeGuardar())) {
+        notifications.show(AVISO_ACCESOS_PENDIENTES);
+      }
       cargar();
     } catch {
       notifications.show({ color: "red", message: "No se pudo guardar el bus." });
@@ -116,18 +149,50 @@ export default function BusesScreen() {
   const alternarActivo = async (bus: Bus) => {
     try {
       await cambiarActivoBus(bus.id, !bus.activo);
+      if (!(await recalcularAccesosDespuesDeGuardar())) {
+        notifications.show(AVISO_ACCESOS_PENDIENTES);
+      }
       cargar();
     } catch {
       notifications.show({ color: "red", message: "No se pudo cambiar el estado." });
     }
   };
 
+  // ============================================
+  // QUÉ LE FALTA A ESTA PANTALLA
+  // ============================================
+  // Un conductor sin unidad asignada abre su app y ve "no tenés un bus
+  // asignado": no puede trabajar, y desde acá no se nota — la lista de buses se
+  // ve completa, porque el que falta es un usuario, no un bus.
+  //
+  // Es el mismo agujero que la insignia "No le llega al conductor" de la
+  // pantalla de Rutas, visto desde el otro lado de la cadena.
+  const faltantes = useMemo(() => {
+    if (!buses) return { conductoresSinBus: [] as Usuario[], busesSinConductor: [] as Bus[] };
+
+    const asignados = new Set(
+      buses.filter((b) => b.activo).map((b) => b.conductorId).filter(Boolean)
+    );
+
+    return {
+      conductoresSinBus: conductores.filter((c) => c.activo && !asignados.has(c.id)),
+      // Una unidad cuyo conductor se dio de baja queda huérfana: sigue activa,
+      // sigue teniendo rutas, y nadie las ve en su teléfono.
+      busesSinConductor: buses.filter(
+        (b) =>
+          b.activo &&
+          (!b.conductorId || !conductores.some((c) => c.id === b.conductorId && c.activo))
+      ),
+    };
+  }, [buses, conductores]);
+
   if (!buses) {
-    return <Loader />;
+    return <CargandoBus texto="Cargando las unidades…" />;
   }
 
   const nombreConductor = (id: string) =>
     conductores.find((c) => c.id === id)?.nombre ?? "(sin asignar)";
+
 
   return (
     <Stack>
@@ -137,6 +202,52 @@ export default function BusesScreen() {
           Nuevo bus
         </Button>
       </Group>
+
+      <Sugerencias
+        sugerencias={[
+          ...(faltantes.conductoresSinBus.length > 0
+            ? [
+                {
+                  id: "conductor-sin-bus",
+                  texto: `${plural(faltantes.conductoresSinBus.length, "conductor no tiene", "conductores no tienen")} unidad asignada (${enumerar(
+                    faltantes.conductoresSinBus.map((c) => c.nombre)
+                  )}). En su app van a ver "no tenés un bus asignado".`,
+                },
+              ]
+            : []),
+          ...(faltantes.busesSinConductor.length > 0
+            ? [
+                {
+                  id: "bus-sin-conductor",
+                  texto: `${plural(faltantes.busesSinConductor.length, "unidad activa", "unidades activas")} sin conductor activo (${enumerar(
+                    faltantes.busesSinConductor.map((b) => b.placa)
+                  )}). Sus rutas no le llegan a nadie.`,
+                },
+              ]
+            : []),
+        ]}
+      />
+
+      <FiltrosCatalogo
+        busqueda={busqueda}
+        onBusqueda={setBusqueda}
+        placeholder="Placa o conductor"
+        mostrados={filtrados.length}
+        total={buses.length}
+        onLimpiar={() => {
+          setBusqueda("");
+          setEstado("activos");
+        }}
+      >
+        <Select
+          label="Estado"
+          data={OPCIONES_ESTADO}
+          value={estado}
+          onChange={(v) => setEstado((v as FiltroEstado) ?? "activos")}
+          w={150}
+          allowDeselect={false}
+        />
+      </FiltrosCatalogo>
 
       <Table striped highlightOnHover>
         <Table.Thead>
@@ -150,7 +261,7 @@ export default function BusesScreen() {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {buses.map((bus) => (
+          {pag.visibles.map((bus) => (
             <Table.Tr key={bus.id}>
               <Table.Td>
                 {bus.foto ? (
@@ -179,17 +290,25 @@ export default function BusesScreen() {
               </Table.Td>
             </Table.Tr>
           ))}
-          {buses.length === 0 && (
+          {filtrados.length === 0 && (
             <Table.Tr>
               <Table.Td colSpan={6}>
-                <Text c="dimmed" ta="center">
-                  Todavía no hay buses registrados.
+                <Text c="dimmed" ta="center" py="lg" size="sm">
+                  {buses.length === 0
+                    ? "Todavía no hay buses registrados."
+                    : "Ningún bus coincide con la búsqueda."}
                 </Text>
               </Table.Td>
             </Table.Tr>
           )}
         </Table.Tbody>
       </Table>
+
+      <PiePaginacion
+        pagina={pag.pagina}
+        totalPaginas={pag.totalPaginas}
+        onPagina={pag.setPagina}
+      />
 
       <Modal
         opened={modalAbierto}

@@ -3,7 +3,8 @@ import { Text, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import Tarjeta from '@/components/Tarjeta';
-import { ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
+import PastillaEstado from '@/components/PastillaEstado';
+import { ESPACIO, estilosBase, halo } from '@/constants/estilos';
 import { esReciente, haceCuanto } from '@/utils/tiempo';
 import type { Aviso } from '@/types/models';
 
@@ -37,16 +38,17 @@ export default function TarjetaAviso({
   return (
     <Tarjeta onPress={onPress}>
       <View style={styles.encabezado}>
-        <View style={[styles.circulo, { backgroundColor: tema.colors.tertiaryContainer }]}>
-          <MaterialCommunityIcons
-            name="bullhorn"
-            size={18}
-            color={tema.colors.onTertiaryContainer}
-          />
+        <View
+          style={[
+            styles.circulo,
+            { backgroundColor: 'rgba(245, 158, 11, 0.16)', ...halo(tema.colors.tertiary) },
+          ]}
+        >
+          <MaterialCommunityIcons name="bullhorn" size={18} color={tema.colors.tertiary} />
         </View>
 
         <View style={styles.datos}>
-          <Text variant="titleSmall" numberOfLines={1} style={estilosBase.negrita}>
+          <Text variant="titleSmall" numberOfLines={1}>
             {canalNombre ?? 'Comunicado'}
           </Text>
           <Text variant="bodySmall" style={estilosBase.tenue}>
@@ -56,13 +58,7 @@ export default function TarjetaAviso({
 
         {/* Solo lo publicado en las últimas 24 h se marca como nuevo: así la
             marca significa algo y no aparece en todos los avisos viejos */}
-        {nuevo && (
-          <View style={[styles.pastilla, { backgroundColor: tema.colors.tertiary }]}>
-            <Text variant="labelSmall" style={{ color: tema.colors.onTertiary }}>
-              Nuevo
-            </Text>
-          </View>
-        )}
+        {nuevo && <PastillaEstado texto="Nuevo" tono="aviso" pulso />}
       </View>
 
       <Text variant="bodyMedium" numberOfLines={lineas} style={styles.texto}>
@@ -86,7 +82,6 @@ const styles = StyleSheet.create({
   encabezado: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno },
   circulo: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   datos: { flex: 1, gap: 1 },
-  pastilla: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIO.pastilla },
   // Interlineado más aireado: un aviso puede ser un párrafo entero
   texto: { lineHeight: 21 },
   pie: { flexDirection: 'row', alignItems: 'center', gap: 2 },

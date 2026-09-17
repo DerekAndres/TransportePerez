@@ -1,5 +1,4 @@
 import {
-  addDoc,
   collection,
   doc,
   getDocs,
@@ -7,10 +6,13 @@ import {
   Timestamp,
   where,
   writeBatch,
+  type WriteBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { auditar, auditarBorrado } from "./auditoriaService";
 import type {
   Bus,
+  ColeccionAuditada,
   Escuela,
   LugarRef,
   Nino,
@@ -51,6 +53,31 @@ const esPadreDePrueba = (email?: string) =>
 
 // Firestore admite hasta 500 operaciones por lote
 const MAX_OPS_BATCH = 500;
+// Tope de los lotes que además llevan registros de auditoría (uno por colección)
+const TAMANO_TANDA_AUDITADA = 480;
+// Borrados auditados por lote. Cada uno lleva su propio registro "borrado-…" y
+// las reglas lo verifican con dos accesos a ese documento; Firestore limita esos
+// accesos a 20 por lote, así que van de a pocos.
+const BORRADOS_AUDITADOS_POR_LOTE = 6;
+
+// Padres, niños, unidades y rutas se auditan (ver auditoriaService.ts): las
+// reglas no aceptan escrituras en esas colecciones sin su registro, tampoco las
+// de prueba. Escuelas, puntos, viajes y registros no.
+const COLECCIONES_AUDITADAS = new Set<string>(["usuarios", "ninos", "buses", "rutas"]);
+
+// Si la colección se audita, agrega al lote su registro y devuelve los datos con
+// el `auditoriaId` puesto; si no, devuelve los datos tal cual
+function conAuditoria(lote: WriteBatch, coleccion: string, docIds: string[], datos: object): object {
+  if (!COLECCIONES_AUDITADAS.has(coleccion)) return datos;
+  const auditoriaId = auditar(
+    lote,
+    coleccion as ColeccionAuditada,
+    "datos_prueba",
+    docIds,
+    "Carga de datos de prueba"
+  );
+  return { ...datos, auditoriaId };
+}
 
 export async function cargarDatosDePrueba(conductor1: string, conductor2: string): Promise<ResumenSeed> {
   if (!conductor1 || !conductor2 || conductor1 === conductor2) {
@@ -74,8 +101,14 @@ export async function cargarDatosDePrueba(conductor1: string, conductor2: string
     };
   }
 
-  const crear = async (col: string, data: object) =>
-    (await addDoc(collection(db, col), data)).id;
+  // Cada alta es un lote chico: el documento y, si corresponde, su auditoría
+  const crear = async (col: string, data: object) => {
+    const lote = writeBatch(db);
+    const ref = doc(collection(db, col));
+    lote.set(ref, conAuditoria(lote, col, [ref.id], data));
+    await lote.commit();
+    return ref.id;
+  };
 
   // Escuelas, punto y buses se REUTILIZAN si el otro botón ya los creó, para no
   // terminar con dos "Escuela Central (prueba)" en los selectores.
@@ -383,9 +416,29 @@ export async function cargarNinosDePrueba(
     familia++;
   }
 
-  for (let desde = 0; desde < escrituras.length; desde += MAX_OPS_BATCH) {
+  // Cada tanda lleva UN registro de auditoría por colección auditada que toque
+  // (padres, niños, unidades), con la lista exacta de documentos de esa tanda
+  for (let desde = 0; desde < escrituras.length; desde += TAMANO_TANDA_AUDITADA) {
+    const tanda = escrituras.slice(desde, desde + TAMANO_TANDA_AUDITADA);
     const lote = writeBatch(db);
-    for (const e of escrituras.slice(desde, desde + MAX_OPS_BATCH)) lote.set(e.ref, e.datos);
+    const auditoriaPorColeccion = new Map<string, string>();
+    for (const coleccion of new Set(tanda.map((e) => e.ref.parent.id))) {
+      if (!COLECCIONES_AUDITADAS.has(coleccion)) continue;
+      auditoriaPorColeccion.set(
+        coleccion,
+        auditar(
+          lote,
+          coleccion as ColeccionAuditada,
+          "datos_prueba",
+          tanda.filter((e) => e.ref.parent.id === coleccion).map((e) => e.ref.id),
+          "Carga de datos de prueba (niños, padres y lugares)"
+        )
+      );
+    }
+    for (const e of tanda) {
+      const auditoriaId = auditoriaPorColeccion.get(e.ref.parent.id);
+      lote.set(e.ref, auditoriaId ? { ...e.datos, auditoriaId } : e.datos);
+    }
     await lote.commit();
   }
 
@@ -609,13 +662,57 @@ export async function borrarDatosDePrueba(): Promise<ResumenBorrado> {
     })
   );
 
-  for (let desde = 0; desde < operaciones.length; desde += MAX_OPS_BATCH) {
+  // Se ejecuta en tres tipos de lote, sin alterar el orden de la lista (se
+  // agrupan las operaciones SEGUIDAS del mismo tipo):
+  //   - "simple": borrados sin auditoría (registros, viajes, escuelas…), de a
+  //     muchos;
+  //   - "auditado": borrados de rutas, niños, padres y unidades, cada uno con su
+  //     registro "borrado-…", de a pocos (ver BORRADOS_AUDITADOS_POR_LOTE);
+  //   - "limpiar": las rutas reales a las que se les sacan niños de prueba, con
+  //     UN registro de auditoría por lote.
+  const tipoDeLote = (op: Operacion) =>
+    op.tipo === "limpiarRuta"
+      ? "limpiar"
+      : COLECCIONES_AUDITADAS.has(op.coleccion)
+        ? "auditado"
+        : "simple";
+
+  let i = 0;
+  while (i < operaciones.length) {
+    const tipo = tipoDeLote(operaciones[i]);
+    const maximo =
+      tipo === "auditado"
+        ? BORRADOS_AUDITADOS_POR_LOTE
+        : tipo === "limpiar"
+          ? TAMANO_TANDA_AUDITADA
+          : MAX_OPS_BATCH;
+    const tanda: Operacion[] = [];
+    while (i < operaciones.length && tanda.length < maximo && tipoDeLote(operaciones[i]) === tipo) {
+      tanda.push(operaciones[i]);
+      i++;
+    }
+
     const lote = writeBatch(db);
-    for (const op of operaciones.slice(desde, desde + MAX_OPS_BATCH)) {
-      if (op.tipo === "borrar") {
+    if (tipo === "limpiar") {
+      const auditoriaId = auditar(
+        lote,
+        "rutas",
+        "datos_prueba",
+        tanda.map((op) => op.id),
+        "Se quitaron niños de prueba de rutas reales"
+      );
+      for (const op of tanda) {
+        if (op.tipo === "limpiarRuta") {
+          lote.update(doc(db, "rutas", op.id), { ninoIds: op.ninoIds, ninos: op.ninos, auditoriaId });
+        }
+      }
+    } else {
+      for (const op of tanda) {
+        if (op.tipo !== "borrar") continue;
+        if (tipo === "auditado") {
+          auditarBorrado(lote, op.coleccion as ColeccionAuditada, op.id, "Borrado de datos de prueba");
+        }
         lote.delete(doc(db, op.coleccion, op.id));
-      } else {
-        lote.update(doc(db, "rutas", op.id), { ninoIds: op.ninoIds, ninos: op.ninos });
       }
     }
     await lote.commit();

@@ -1,7 +1,9 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Text, TouchableRipple, useTheme } from 'react-native-paper';
+import { LinearGradient } from 'expo-linear-gradient';
 
-import { ESPACIO, RADIO } from '@/constants/estilos';
+import { ESPACIO, RADIO, VIDRIO, halo } from '@/constants/estilos';
+import { ESPEJO_ZAFIRO, ZAFIRO } from '@/constants/tema';
 
 // ============================================
 // CHIPS DE SELECCIÓN — elegir entre pocas opciones
@@ -49,19 +51,28 @@ export default function ChipFiltro({
             borderless
             style={[
               styles.chip,
-              {
-                backgroundColor: activa ? tema.colors.primary : tema.colors.surfaceVariant,
-              },
+              // La elegida es el espejo de zafiro, con su halo; las demás son
+              // vidrio apagado. El fondo de zafiro va debajo del degradado
+              // porque en iOS una sombra necesita fondo opaco para dibujarse.
+              activa
+                ? { backgroundColor: ZAFIRO, ...halo(ZAFIRO) }
+                : { backgroundColor: 'rgba(255, 255, 255, 0.06)' },
             ]}
           >
             <View style={styles.contenidoChip}>
+              {activa && (
+                <LinearGradient
+                  colors={ESPEJO_ZAFIRO}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[StyleSheet.absoluteFill, styles.chip]}
+                  pointerEvents="none"
+                />
+              )}
               <Text
                 variant="labelLarge"
                 numberOfLines={1}
-                style={{
-                  color: activa ? tema.colors.onPrimary : tema.colors.onSurfaceVariant,
-                  fontWeight: activa ? '700' : '500',
-                }}
+                style={{ color: activa ? '#FFFFFF' : tema.colors.onSurfaceVariant }}
               >
                 {opcion.etiqueta}
               </Text>
@@ -69,7 +80,7 @@ export default function ChipFiltro({
                 <Text
                   variant="labelSmall"
                   style={{
-                    color: activa ? tema.colors.onPrimary : tema.colors.onSurfaceVariant,
+                    color: activa ? '#FFFFFF' : tema.colors.onSurfaceVariant,
                     opacity: 0.75,
                   }}
                 >
@@ -87,12 +98,20 @@ export default function ChipFiltro({
 const styles = StyleSheet.create({
   carril: { marginHorizontal: -ESPACIO.pantalla },
   fila: { paddingHorizontal: ESPACIO.pantalla, gap: 8 },
-  chip: { borderRadius: RADIO.pastilla },
+  chip: {
+    borderRadius: RADIO.pastilla,
+    borderWidth: 1,
+    borderColor: VIDRIO.borde,
+  },
   contenidoChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 18,
     paddingVertical: 11,
+    // El degradado de la elegida va como capa absoluta detrás del texto: sin
+    // esto quedaría por encima y taparía la etiqueta
+    overflow: 'hidden',
+    borderRadius: RADIO.pastilla,
   },
 });

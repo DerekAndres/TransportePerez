@@ -41,12 +41,14 @@ export async function enviarRecuperacionPassword(email: string): Promise<void> {
   await sendPasswordResetEmail(auth, email.trim());
 }
 
-// --- Actualiza el perfil PROPIO (nombre, teléfono y/o foto) ---
-// Las reglas permiten que cada usuario edite su documento siempre que no se
-// cambie el rol — acá solo se tocan campos inofensivos.
+// --- Actualiza el perfil PROPIO (teléfono y/o foto) ---
+// Las reglas de Firestore solo dejan que cada usuario cambie de su documento el
+// teléfono, la foto y el token de avisos. El nombre, el correo y el rol los
+// administra el panel: así nadie puede renombrarse "Administración" para
+// confundir a otros en el chat.
 export async function actualizarMiPerfil(
   uid: string,
-  datos: { nombre?: string; telefono?: string; foto?: string }
+  datos: { telefono?: string; foto?: string }
 ): Promise<void> {
   await updateDoc(doc(db, "usuarios", uid), datos);
 }
@@ -57,7 +59,7 @@ export async function actualizarMiPerfil(
 // `debeCompletarPerfil` en false, la app lo deja entrar con normalidad.
 export async function completarRegistro(
   uid: string,
-  datos: { nombre: string; telefono: string; foto?: string }
+  datos: { telefono: string; foto?: string }
 ): Promise<void> {
   await updateDoc(doc(db, "usuarios", uid), {
     ...datos,

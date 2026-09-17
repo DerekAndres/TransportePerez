@@ -1,18 +1,24 @@
 import {
-  addDoc,
   collection,
+  deleteField,
   doc,
   getCountFromServer,
+  getDoc,
   getDocs,
   orderBy,
   query,
-  updateDoc,
   where,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { auditar, auditarBorrado } from "./auditoriaService";
 import { entradaDirecta } from "../utils/recorrido";
-import type { Nino, NinoEnRuta, Ruta, Turno } from "../types/models";
+import type { CambioAuditado, Nino, NinoEnRuta, Ruta, Turno } from "../types/models";
+
+// Qué niños van en una ruta y en qué unidad deciden a quién ve cada conductor en
+// su app, así que toda escritura de rutas va con su registro de auditoría (ver
+// auditoriaService.ts). Después de guardar, la pantalla recalcula los accesos de
+// los conductores (accesoConductoresService.ts).
 
 // --- Lista todas las rutas, ordenadas por nombre ---
 export async function listarRutas(): Promise<Ruta[]> {
@@ -32,33 +38,45 @@ interface DatosRuta {
   escuelaIds: string[];
   ninoIds: string[];
   ninos: NinoEnRuta[];
-}
-
-// --- Crea una ruta ---
-export async function crearRuta(datos: DatosRuta): Promise<void> {
-  await addDoc(collection(db, "rutas"), { ...datos, activa: true });
-}
-
-// --- Actualiza una ruta existente ---
-export async function actualizarRuta(id: string, datos: DatosRuta): Promise<void> {
-  await updateDoc(doc(db, "rutas", id), { ...datos });
+  // "HH:mm" o vacío. Solo informativa: el conductor la ve como su horario.
+  horaSalida: string;
 }
 
 // --- Activa o desactiva una ruta ---
 export async function cambiarActivaRuta(id: string, activa: boolean): Promise<void> {
-  await updateDoc(doc(db, "rutas", id), { activa });
+  const lote = writeBatch(db);
+  const auditoriaId = auditar(
+    lote,
+    "rutas",
+    activa ? "activar" : "desactivar",
+    [id],
+    activa ? "Ruta reactivada" : "Ruta desactivada"
+  );
+  lote.update(doc(db, "rutas", id), { activa, auditoriaId });
+  await lote.commit();
 }
 
-// --- Actualiza SOLO los niños de una ruta ---
-// Se usa al sincronizar un transbordo: cuando el admin guarda la ruta que ENTREGA
-// al niño en un punto, la ruta del bus que lo RECIBE se actualiza sola con esta
-// función (el admin nunca edita las dos rutas a mano).
-export async function actualizarNinosDeRuta(
-  id: string,
-  ninoIds: string[],
-  ninos: NinoEnRuta[]
-): Promise<void> {
-  await updateDoc(doc(db, "rutas", id), { ninoIds, ninos });
+// Resumen de qué cambió en la lista de niños y en la unidad, para la auditoría
+function cambiosDeRuta(previa: Partial<Ruta>, datos: DatosRuta): CambioAuditado[] {
+  const cambios: CambioAuditado[] = [];
+  const antes = new Set(previa.ninoIds ?? []);
+  const despues = new Set(datos.ninoIds);
+  const agregados = [...despues].filter((id) => !antes.has(id)).length;
+  const quitados = [...antes].filter((id) => !despues.has(id)).length;
+  if (agregados > 0 || quitados > 0) {
+    cambios.push({
+      campo: "niños",
+      antes: `${antes.size}`,
+      despues: `${despues.size} (agregó ${agregados}, quitó ${quitados})`,
+    });
+  }
+  if ((previa.busId ?? "") !== datos.busId) {
+    cambios.push({ campo: "busId", antes: previa.busId ?? "—", despues: datos.busId });
+  }
+  if ((previa.horaSalida ?? "") !== datos.horaSalida) {
+    cambios.push({ campo: "horaSalida", antes: previa.horaSalida || "—", despues: datos.horaSalida || "—" });
+  }
+  return cambios;
 }
 
 // Cómo queda la lista de niños de una ruta RECEPTORA después de un transbordo.
@@ -85,19 +103,39 @@ export async function guardarRutaConReceptoras(
   receptoras: CambioReceptora[]
 ): Promise<void> {
   const lote = writeBatch(db);
+  // doc() sobre la colección genera el id en el cliente, así la ruta nueva
+  // entra en el mismo lote que sus receptoras (addDoc no se puede loteear).
+  const ref = rutaId ? doc(db, "rutas", rutaId) : doc(collection(db, "rutas"));
+  const previa: Partial<Ruta> = rutaId ? ((await getDoc(ref)).data() ?? {}) : {};
 
+  // UN registro de auditoría para todo el lote: la ruta y las receptoras de sus
+  // transbordos cambian juntas, así que quedan anotadas juntas
+  const auditoriaId = auditar(
+    lote,
+    "rutas",
+    rutaId ? "editar" : "crear",
+    [ref.id, ...receptoras.map((r) => r.rutaId)],
+    `${rutaId ? "Editó" : "Creó"} la ruta ${datos.nombre}` +
+      (receptoras.length > 0
+        ? ` y actualizó ${receptoras.length} ruta(s) que reciben sus transbordos`
+        : ""),
+    cambiosDeRuta(previa, datos)
+  );
+
+  // La hora de salida es opcional: vacía se BORRA del documento (Firestore no
+  // acepta undefined, y dejar "" guardado sería un valor que no dice nada)
+  const { horaSalida, ...resto } = datos;
   if (rutaId) {
-    lote.update(doc(db, "rutas", rutaId), { ...datos });
+    lote.update(ref, { ...resto, horaSalida: horaSalida || deleteField(), auditoriaId });
   } else {
-    // doc() sobre la colección genera el id en el cliente, así la ruta nueva
-    // entra en el mismo lote que sus receptoras (addDoc no se puede loteear).
-    lote.set(doc(collection(db, "rutas")), { ...datos, activa: true });
+    lote.set(ref, { ...resto, ...(horaSalida ? { horaSalida } : {}), activa: true, auditoriaId });
   }
 
   for (const receptora of receptoras) {
     lote.update(doc(db, "rutas", receptora.rutaId), {
       ninoIds: receptora.ninoIds,
       ninos: receptora.ninos,
+      auditoriaId,
     });
   }
 
@@ -236,14 +274,42 @@ export async function analizarBorradoDeRuta(
 // Los VIAJES históricos NO se borran: son el registro de un servicio que sí
 // ocurrió y los reportes se apoyan en ellos. Quedan apuntando a una ruta que ya
 // no existe, y por eso la confirmación avisa cuántos son.
-export async function borrarRuta(efectos: EfectoEnOtraRuta[], rutaId: string): Promise<void> {
+//
+// Va con DOS registros de auditoría: el del borrado (con id deducible, porque la
+// ruta borrada no tiene dónde anotarlo) y el de las rutas que se tocan.
+export async function borrarRuta(
+  efectos: EfectoEnOtraRuta[],
+  rutaId: string,
+  rutaNombre: string
+): Promise<void> {
   const lote = writeBatch(db);
+  auditarBorrado(
+    lote,
+    "rutas",
+    rutaId,
+    `Borró la ruta ${rutaNombre}` +
+      (efectos.length > 0 ? ` y deshizo sus transbordos en ${efectos.length} ruta(s)` : "")
+  );
   lote.delete(doc(db, "rutas", rutaId));
-  for (const efecto of efectos) {
-    lote.update(doc(db, "rutas", efecto.rutaId), {
-      ninoIds: efecto.ninoIds,
-      ninos: efecto.ninos,
-    });
+
+  if (efectos.length > 0) {
+    const auditoriaId = auditar(
+      lote,
+      "rutas",
+      "deshacer_transbordo",
+      efectos.map((e) => e.rutaId),
+      `Transbordos deshechos al borrar la ruta ${rutaNombre}: ` +
+        efectos
+          .map((e) => `${e.rutaNombre} (sin bus: ${e.quitados.length}, pasan a directo: ${e.vueltosDirectos.length})`)
+          .join("; ")
+    );
+    for (const efecto of efectos) {
+      lote.update(doc(db, "rutas", efecto.rutaId), {
+        ninoIds: efecto.ninoIds,
+        ninos: efecto.ninos,
+        auditoriaId,
+      });
+    }
   }
   await lote.commit();
 }

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import PantallaBase from '@/components/PantallaBase';
+import PastillaEstado from '@/components/PastillaEstado';
 import Tarjeta from '@/components/Tarjeta';
 import {
   listarRegistrosDeNino,
@@ -13,7 +14,15 @@ import {
 } from '@/services/padreService';
 import { fechaDeHoy } from '@/services/viajesService';
 import { ESPACIO, RADIO, estilosBase } from '@/constants/estilos';
+import { FUENTES } from '@/constants/tema';
+import {
+  ICONO_EVENTO,
+  TEXTO_EVENTO,
+  registrosEfectivos,
+  tonoEvento,
+} from '@/utils/eventos';
 import type { Registro, Ruta, Turno } from '@/types/models';
+import CargandoBus from '@/components/CargandoBus';
 
 // Historial de asistencia de un hijo: los ÚLTIMOS 7 DÍAS de una sola vez,
 // agrupados por día. Antes se veía un día a la vez con flechas, y el padre caía
@@ -99,7 +108,11 @@ export default function HistorialScreen() {
               const viajes = await listarViajesDeRutaPorFecha(ruta.id, fecha);
               const porViaje = await Promise.all(
                 viajes.map(async (viaje) => {
-                  const propios = await listarRegistrosDeNino(viaje.id, params.ninoId);
+                  // Solo lo que quedó en pie: las marcas que el conductor
+                  // deshizo no se le muestran al padre (ver registrosEfectivos)
+                  const propios = registrosEfectivos(
+                    await listarRegistrosDeNino(viaje.id, params.ninoId)
+                  );
                   return propios.map(
                     (r): RegistroConRuta => ({
                       ...r,
@@ -152,7 +165,7 @@ export default function HistorialScreen() {
         scroll={false}
       >
         <View style={estilosBase.centrado}>
-          <ActivityIndicator size="large" />
+          <CargandoBus texto="Cargando el historial…" />
         </View>
       </PantallaBase>
     );
@@ -198,38 +211,23 @@ export default function HistorialScreen() {
                 <View
                   style={[
                     styles.circulo,
-                    {
-                      backgroundColor:
-                        registro.evento === 'subio'
-                          ? tema.colors.primaryContainer
-                          : tema.colors.surfaceVariant,
-                    },
+                    { backgroundColor: tonoEvento(registro.evento, tema).fondo },
                   ]}
                 >
                   <MaterialCommunityIcons
-                    name={registro.evento === 'subio' ? 'bus' : 'home-import-outline'}
+                    name={ICONO_EVENTO[registro.evento]}
                     size={19}
-                    color={
-                      registro.evento === 'subio'
-                        ? tema.colors.onPrimaryContainer
-                        : tema.colors.onSurfaceVariant
-                    }
+                    color={tonoEvento(registro.evento, tema).texto}
                   />
                 </View>
                 <View style={styles.datos}>
-                  <Text variant="bodyLarge">
-                    {registro.evento === 'subio' ? 'Subió al bus' : 'Bajó del bus'}
-                  </Text>
+                  <Text variant="bodyLarge">{TEXTO_EVENTO[registro.evento]}</Text>
                   <Text variant="bodySmall" style={estilosBase.tenue}>
                     {formatoHora(registro)} · {registro.rutaNombre}
                   </Text>
                 </View>
                 {registro.turno && (
-                  <View style={[styles.pastilla, { borderColor: tema.colors.outlineVariant }]}>
-                    <Text variant="labelSmall" style={estilosBase.tenue}>
-                      {ETIQUETA_TURNO[registro.turno]}
-                    </Text>
-                  </View>
+                  <PastillaEstado texto={ETIQUETA_TURNO[registro.turno]} tono="espera" />
                 )}
               </View>
             ))}
@@ -243,7 +241,7 @@ export default function HistorialScreen() {
 const styles = StyleSheet.create({
   grupoDia: { gap: ESPACIO.interno },
   // La primera letra del día viene en minúscula del toLocaleDateString
-  tituloDia: { textTransform: 'capitalize', fontWeight: '700' },
+  tituloDia: { textTransform: 'capitalize', fontFamily: FUENTES.textoNegrita },
   filaRegistro: {
     flexDirection: 'row',
     alignItems: 'center',

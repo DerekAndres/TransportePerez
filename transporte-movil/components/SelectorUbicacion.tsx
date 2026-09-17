@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Button, IconButton, Text, useTheme } from 'react-native-paper';
+import { Button, Text, useTheme } from 'react-native-paper';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
+import BotonMapa from '@/components/BotonMapa';
+import { COLORES_MAPA, CSS_MAPA, JS_ENTRADA_MAPA, TESELAS } from '@/constants/mapa';
 
 // ============================================
 // SELECTOR DE UBICACIÓN (formularios del padre)
@@ -45,13 +47,17 @@ function htmlVistaPrevia(lat: number, lng: number) {
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    html, body, #mapa { height: 100%; margin: 0; background: #fff; }
+    /* Teselas oscuras compartidas con los otros mapas (constants/mapa.ts) */
+    ${CSS_MAPA}
+    /* La misma burbuja de vidrio que el mapa del bus, con borde cian: acá el
+       marcador señala un DATO de ubicación, no un estado de un niño */
     .burbuja {
       width: 40px; height: 40px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      font-size: 20px; background: #fff;
-      border: 3px solid #1B7A5A;
-      box-shadow: 0 3px 10px rgba(13, 40, 84, .35);
+      font-size: 20px;
+      background: rgba(15, 23, 42, .92);
+      border: 2px solid ${COLORES_MAPA.cian};
+      box-shadow: 0 4px 14px rgba(0, 0, 0, .6), 0 0 12px rgba(56, 189, 248, .45);
       box-sizing: border-box;
     }
   </style>
@@ -60,13 +66,16 @@ function htmlVistaPrevia(lat: number, lng: number) {
   <div id="mapa"></div>
   <script>
     // Todo desactivado: es una foto del lugar, no un control
+    ${JS_ENTRADA_MAPA}
+
     var mapa = L.map('mapa', {
       zoomControl: false, dragging: false, touchZoom: false, scrollWheelZoom: false,
       doubleClickZoom: false, boxZoom: false, keyboard: false, tap: false,
       attributionControl: false
     }).setView([${lat}, ${lng}], ${ZOOM_CERCA});
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd', maxZoom: 20
+    L.tileLayer('${TESELAS.url}', {
+      attribution: '${TESELAS.atribucion}',
+      maxZoom: ${TESELAS.maxZoom}
     }).addTo(mapa);
     L.marker([${lat}, ${lng}], {
       icon: L.divIcon({ className: '', html: '<div class="burbuja">📍</div>', iconSize: [40, 40], iconAnchor: [20, 20] })
@@ -87,19 +96,21 @@ function htmlSelector(lat: number, lng: number, zoom: number) {
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    html, body, #mapa { height: 100%; margin: 0; background: #fff; }
-    .leaflet-control-attribution { font-size: 9px; }
+    /* Teselas oscuras compartidas con los otros mapas (constants/mapa.ts) */
+    ${CSS_MAPA}
   </style>
 </head>
 <body>
   <div id="mapa"></div>
   <script>
+    ${JS_ENTRADA_MAPA}
+
     var mapa = L.map('mapa', { zoomControl: false }).setView([${lat}, ${lng}], ${zoom});
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
-      subdomains: 'abcd',
-      maxZoom: 20
+    L.tileLayer('${TESELAS.url}', {
+      attribution: '${TESELAS.atribucion}',
+      maxZoom: ${TESELAS.maxZoom}
     }).addTo(mapa);
+
 
     // Cada vez que el mapa deja de moverse, se avisa a React Native cuál quedó
     // siendo el centro: esa es la coordenada que el pin está marcando.
@@ -328,18 +339,24 @@ export default function SelectorUbicacion({
               </View>
             </View>
 
-            {/* Botón de GPS flotando sobre el mapa */}
-            <View style={[styles.botonGps, { backgroundColor: tema.colors.surface }]}>
-              {buscandoGps ? (
-                <ActivityIndicator size={20} style={styles.cargandoGps} />
-              ) : (
-                <IconButton
-                  icon="crosshairs-gps"
-                  size={24}
-                  onPress={ubicarme}
-                  accessibilityLabel="Centrar en mi ubicación"
+            {/* Los botones que acomodan el mapa, los mismos de toda la app
+                (components/BotonMapa.tsx): ir a donde estoy parado y, si ya
+                había un lugar marcado, volver a él después de haber movido el
+                mapa buscando. */}
+            <View style={styles.controles}>
+              {!!valor && (
+                <BotonMapa
+                  icono="map-marker-check"
+                  accesibilidad="Volver al lugar ya marcado"
+                  onPress={() => centrarEn(valor.lat, valor.lng)}
                 />
               )}
+              <BotonMapa
+                icono="crosshairs-gps"
+                cargando={buscandoGps}
+                accesibilidad="Centrar el mapa en mi ubicación"
+                onPress={ubicarme}
+              />
             </View>
           </View>
 
@@ -382,39 +399,45 @@ const styles = StyleSheet.create({
   modal: { flex: 1 },
   mapaGrande: { flex: 1, position: 'relative' },
   webviewGrande: { flex: 1, backgroundColor: 'transparent' },
-  capaPin: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  // React Native 0.86 quitó `StyleSheet.absoluteFillObject`, así que las cuatro
+  // posiciones van escritas: la capa del pin cubre todo el mapa y centra su
+  // contenido
+  capaPin: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   // Sube el grupo media burbuja para que el PUNTO quede en el centro exacto
   // (burbuja 44 + punto 8 = 52 de alto; centrado y subido 22 → el punto cae justo)
   grupoPin: { alignItems: 'center', transform: [{ translateY: -22 }] },
+  // La misma burbuja de vidrio que usan los marcadores DENTRO del mapa
+  // (ver constants/mapa.ts). Acá se dibuja con React Native y no con HTML,
+  // porque este pin va fijo en el centro de la pantalla mientras el mapa se
+  // mueve por debajo — pero tiene que verse idéntico a los otros.
   burbujaPin: {
     width: 44,
     height: 44,
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 3,
-    borderColor: '#1B7A5A',
-    shadowColor: '#5A1F0A',
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
+    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+    borderWidth: 2,
+    borderColor: COLORES_MAPA.cian,
+    shadowColor: COLORES_MAPA.cian,
+    shadowOpacity: 0.55,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 3 },
-    elevation: 6,
+    elevation: 8,
   },
   emojiPin: { fontSize: 21 },
   puntoExacto: { width: 8, height: 8, borderRadius: 4 },
-  botonGps: {
-    position: 'absolute',
-    right: 14,
-    bottom: 14,
-    borderRadius: 26,
-    elevation: 4,
-    shadowColor: '#5A1F0A',
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  cargandoGps: { width: 48, height: 48 },
+  // Abajo a la derecha, donde llega el pulgar. Los 30 px de abajo dejan a la
+  // vista la atribución de OpenStreetMap, que es obligatoria.
+  controles: { position: 'absolute', right: 14, bottom: 30, gap: 10, alignItems: 'flex-end' },
   barraInferior: { paddingHorizontal: 16, paddingTop: 12, gap: 10 },
   instruccion: { textAlign: 'center', opacity: 0.75 },
 });

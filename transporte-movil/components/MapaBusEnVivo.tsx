@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { WebView } from 'react-native-webview';
 
+import BotonMapa from '@/components/BotonMapa';
 import { escucharUbicacion } from '@/services/padreService';
 import type { UbicacionActual } from '@/types/models';
+import { ESPACIO } from '@/constants/estilos';
+import { COLORES_MAPA, CSS_MAPA, JS_ENTRADA_MAPA, TESELAS } from '@/constants/mapa';
 
 // Mapa del bus en vivo, reutilizable: lo usan la pantalla completa del mapa y la
 // vista previa embebida en el inicio del padre. Antes este HTML vivía suelto
@@ -11,8 +14,12 @@ import type { UbicacionActual } from '@/types/models';
 // Leaflet que después se desincronizan.
 //
 // Todo el stack de mapas es ecosistema OpenStreetMap, gratis y sin API key:
-//   - Teselas CARTO Positron: el estilo claro y elegante (datos OSM renderizados
-//     por CARTO) que usan las apps modernas de delivery/transporte.
+//   - Teselas del servidor oficial de OpenStreetMap. Se venia usando CARTO
+//     Positron, mas elegante, pero CARTO pasó a exigir una API key y los mapas
+//     empezaron a mostrar el cartel "API KEY REQUIRED" encima. OSM es el que el
+//     informe declara y no pide clave. Para que el mapa acompañe a la identidad
+//     oscura de la app, las teselas se invierten por CSS en vez de cambiar de
+//     proveedor — la explicación completa está en el <style> del HTML.
 //   - Ruteo OSRM (router.project-osrm.org): dibuja el camino del bus a la casa
 //     SIGUIENDO LAS CALLES. Es el servidor público de demostración de OSRM; si
 //     no responde, el mapa sigue funcionando igual, solo sin la línea.
@@ -30,7 +37,10 @@ function generarHtmlMapa(
   paradaLat: number,
   paradaLng: number,
   paradaNombre: string,
-  interactivo: boolean
+  interactivo: boolean,
+  // Placa de la unidad, para la cápsula del bus ("UNIDAD HAB-1234").
+  // Si no se pasa, la cápsula dice solo "Bus".
+  unidad: string
 ) {
   return `<!DOCTYPE html>
 <html>
@@ -39,35 +49,16 @@ function generarHtmlMapa(
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    /* Los colores de acá replican los del tema (constants/tema.ts): coral para
-       el bus —lo que se mueve— y aqua para la parada —el destino—. Van escritos
-       a mano porque este HTML corre dentro del WebView, aislado de React. */
-    html, body, #mapa { height: 100%; margin: 0; background: #FFFFFF; }
+    /* Los colores de acá replican los del tema (constants/tema.ts): zafiro para
+       el bus —lo que está pasando ahora— y cian para la parada —el dato de
+       ubicación—. Van escritos a mano porque este HTML corre dentro del WebView,
+       aislado de React: el WebView no ve el tema de Paper.
+       El CSS que oscurece las teselas es compartido por los tres mapas de la
+       app y vive en constants/mapa.ts, con la explicación de por qué se
+       invierten en vez de cambiar de proveedor. */
+    ${CSS_MAPA}
     /* Transición suave: el marcador "viaja" hacia la posición nueva en vez de saltar */
     .marcador-bus { transition: transform 0.9s linear; }
-    /* Marcadores tipo burbuja: círculo con sombra, como en las apps modernas */
-    .burbuja {
-      width: 42px; height: 42px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 21px; background: #fff;
-      border: 3px solid #1B7A5A;
-      box-shadow: 0 3px 12px rgba(90, 31, 10, .35);
-      box-sizing: border-box;
-      /* referencia para el halo del bus, que se posiciona sobre esta burbuja */
-      position: relative;
-    }
-    .burbuja-bus { background: #12659E; border-color: #fff; }
-    /* Halo que late alrededor del bus: se ve de un vistazo que la posición está
-       viva y no es una foto vieja del mapa */
-    .burbuja-bus::after {
-      content: ''; position: absolute; inset: -3px;
-      border-radius: 50%; border: 2px solid #12659E;
-      animation: latido 2s ease-out infinite;
-    }
-    @keyframes latido {
-      0%   { transform: scale(1);   opacity: .8; }
-      100% { transform: scale(2.1); opacity: 0; }
-    }
   </style>
 </head>
 <body>
@@ -90,30 +81,123 @@ function generarHtmlMapa(
       attributionControl: INTERACTIVO
     }).setView([PARADA.lat, PARADA.lng], 15);
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
-      subdomains: 'abcd',
-      maxZoom: 20
+    var capa = L.tileLayer('${TESELAS.url}', {
+      attribution: '${TESELAS.atribucion}',
+      maxZoom: ${TESELAS.maxZoom}
     }).addTo(mapa);
 
-    // Marcador fijo: la casa/parada del niño (burbuja blanca con borde aqua)
-    var marcadorParada = L.marker([PARADA.lat, PARADA.lng], {
+    // Si el servidor de teselas deja de responder, se pasa al de respaldo en vez
+    // de dejar la pantalla vacía. Se espera a varios fallos seguidos porque una
+    // tesela suelta puede fallar por señal y no por el servidor.
+    var fallos = 0;
+    capa.on('tileerror', function () {
+      fallos++;
+      if (fallos < 5 || mapa.__respaldo) return;
+      mapa.__respaldo = true;
+      mapa.removeLayer(capa);
+      L.tileLayer('${TESELAS.urlRespaldo}', {
+        attribution: '${TESELAS.atribucionRespaldo}',
+        maxZoom: ${TESELAS.maxZoom}
+      }).addTo(mapa);
+    });
+
+
+
+    ${JS_ENTRADA_MAPA}
+    // Se adelanta la entrada al momento en que termina de cargar la PRIMERA
+    // tanda de teselas: así el usuario ve el mapa ya dibujado y no armándose
+    capa.on('load', entrarMapa);
+
+    // Cápsula con nombre: un punto de color y el texto al lado. Se arma con
+    // textContent y no con HTML para que el nombre de una parada escrito por
+    // un padre no pueda inyectar marcado.
+    function capsula(texto, color, clases, sub) {
+      var caja = document.createElement('div');
+      caja.className = 'pastilla-mapa ' + (clases || '');
+      var punto = document.createElement('span');
+      punto.className = 'punto';
+      if (color) { punto.style.background = color; punto.style.boxShadow = '0 0 8px ' + color; }
+      caja.appendChild(punto);
+      var etiqueta = document.createElement('span');
+      etiqueta.textContent = texto;
+      caja.appendChild(etiqueta);
+      if (sub) {
+        var extra = document.createElement('span');
+        extra.className = 'sub';
+        extra.textContent = sub;
+        caja.appendChild(extra);
+      }
+      return caja;
+    }
+
+    // Marcador fijo: el destino del niño. Va en ÁMBAR, que en toda la app
+    // significa "hacia allá vamos", y no en el zafiro del bus: si los dos
+    // fueran del mismo color habría que leerlos para distinguirlos.
+    L.marker([PARADA.lat, PARADA.lng], {
       icon: L.divIcon({
         className: '',
-        html: '<div class="burbuja">🏠</div>',
-        iconSize: [42, 42],
-        iconAnchor: [21, 21]
+        html: capsula(${JSON.stringify(paradaNombre || 'Parada')}, '${COLORES_MAPA.ambar}').outerHTML,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0]
       })
     }).addTo(mapa);
-    if (INTERACTIVO) marcadorParada.bindPopup(${JSON.stringify(paradaNombre || 'Parada')});
 
-    // Marcador móvil: el bus (burbuja coral; se crea con la primera coordenada)
+    // Marcador móvil: el bus (cápsula de zafiro; se crea con la primera coordenada)
     var marcadorBus = null;
-    var primeraVez = true;
+    var ultimoBus = null;
 
-    // Camino por las calles del bus a la casa (dos líneas: borde blanco + coral,
-    // para que se lea nítida sobre el mapa claro)
-    var rutaBorde = null;
+    // ============================================
+    // EL MAPA SE ACOMODA SOLO
+    // ============================================
+    // El bus manda su posición cada ~15 s. Si el mapa se quedara quieto, a los
+    // pocos minutos el bus se habría ido de la pantalla y el padre tendría que
+    // arrastrar el mapa con el dedo para encontrarlo — justo lo que no se puede
+    // hacer parado en la vereda con un niño de la mano.
+    //
+    // Así que el mapa SIGUE al bus: en cada posición nueva vuelve a encuadrar el
+    // bus y la parada juntos, que es la pregunta real ("¿cuánto le falta para
+    // llegar a mi casa?"). Con una excepción: en cuanto el padre mueve el mapa
+    // con el dedo, el mapa deja de seguirlo. Un mapa que se reacomoda solo
+    // mientras alguien lo está mirando es peor que uno quieto. Ahí se le avisa a
+    // React Native, que enciende el botón "Centrar" para volver.
+    var seguir = true;
+
+    function avisarSeguimiento() {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ tipo: 'seguimiento', activo: seguir }));
+      }
+    }
+
+    function encuadrar() {
+      if (ultimoBus) {
+        // El relleno de abajo es más grande: ahí flota el botón de centrar
+        mapa.fitBounds([[ultimoBus.lat, ultimoBus.lng], [PARADA.lat, PARADA.lng]], {
+          paddingTopLeft: L.point(45, 45),
+          paddingBottomRight: L.point(45, 85),
+          maxZoom: 17
+        });
+      } else {
+        // Todavía no llegó ninguna posición del bus: al menos, la parada
+        mapa.setView([PARADA.lat, PARADA.lng], 15);
+      }
+    }
+
+    function dejarDeSeguir() {
+      if (!seguir) return;
+      seguir = false;
+      avisarSeguimiento();
+    }
+
+    // 'dragstart' lo dispara SOLO el dedo (encuadrar por código no lo dispara).
+    // El zoom con dos dedos no distingue quién lo pidió, así que se mira el
+    // toque: dos dedos sobre el mapa es siempre una persona.
+    mapa.on('dragstart', dejarDeSeguir);
+    mapa.on('dblclick', dejarDeSeguir);
+    mapa.getContainer().addEventListener('touchstart', function (evento) {
+      if (evento.touches && evento.touches.length > 1) dejarDeSeguir();
+    }, { passive: true });
+
+    // Camino por las calles del bus a la casa
     var rutaLinea = null;
     var ultimoRuteo = null;
 
@@ -139,10 +223,14 @@ function generarHtmlMapa(
           // GeoJSON viene [lng, lat]; Leaflet espera [lat, lng]
           var puntos = d.routes[0].geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
           if (!rutaLinea) {
-            rutaBorde = L.polyline(puntos, { color: '#fff', weight: 9, opacity: .9, lineCap: 'round', lineJoin: 'round' }).addTo(mapa);
-            rutaLinea = L.polyline(puntos, { color: '#12659E', weight: 5, opacity: .95, lineCap: 'round', lineJoin: 'round' }).addTo(mapa);
+            rutaLinea = L.polyline(puntos, { color: '${COLORES_MAPA.zafiroClaro}', weight: 4, opacity: 1, lineCap: 'round', lineJoin: 'round' }).addTo(mapa);
           } else {
-            rutaBorde.setLatLngs(puntos);
+            // Se MUEVE la línea que ya existe en vez de dibujar otra encima:
+            // si no, a los veinte minutos de viaje el mapa tendría ochenta
+            // líneas apiladas. (Acá antes se tocaba una segunda línea que no
+            // existía: el error rompía la actualización en silencio —queda
+            // adentro de un .then— y el camino se congelaba en el primero que
+            // se había calculado, aunque el bus siguiera avanzando.)
             rutaLinea.setLatLngs(puntos);
           }
         })
@@ -151,28 +239,38 @@ function generarHtmlMapa(
 
     function actualizarBus(lat, lng) {
       if (!marcadorBus) {
+        // La cápsula del bus lleva el aura que late: es lo único del mapa que
+        // está pasando AHORA, y tiene que distinguirse del destino sin leer.
+        var caja = capsula(${JSON.stringify(unidad ? `Unidad ${unidad}` : 'Bus')}, null, 'pastilla-bus');
+        var aura = document.createElement('span');
+        aura.className = 'aura-bus';
+        caja.appendChild(aura);
         marcadorBus = L.marker([lat, lng], {
           icon: L.divIcon({
             className: 'marcador-bus',
-            html: '<div class="burbuja burbuja-bus">🚌</div>',
-            iconSize: [42, 42],
-            iconAnchor: [21, 21]
+            html: caja.outerHTML,
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
           })
         }).addTo(mapa);
       } else {
         marcadorBus.setLatLng([lat, lng]);
       }
       actualizarRuta(lat, lng);
-      if (primeraVez) {
-        // Encuadra bus + parada juntos solo la primera vez (después no molesta al usuario)
-        mapa.fitBounds([[lat, lng], [PARADA.lat, PARADA.lng]], { padding: [50, 50] });
-        primeraVez = false;
-      }
+      ultimoBus = { lat: lat, lng: lng };
+      if (seguir) encuadrar();
     }
 
     function recibirMensaje(evento) {
       try {
         var datos = JSON.parse(evento.data);
+        // El padre tocó "Centrar": el mapa vuelve al bus y retoma el seguimiento
+        if (datos.accion === 'centrar') {
+          seguir = true;
+          avisarSeguimiento();
+          encuadrar();
+          return;
+        }
         if (typeof datos.lat === 'number' && typeof datos.lng === 'number') {
           actualizarBus(datos.lat, datos.lng);
         }
@@ -192,6 +290,8 @@ interface Props {
   paradaLat: number;
   paradaLng: number;
   paradaNombre?: string;
+  // Placa de la unidad, para la etiqueta del bus en el mapa
+  unidad?: string;
   // false = vista previa: sin arrastrar ni zoom, para embeberlo en una lista
   interactivo?: boolean;
   onEstado?: (estado: EstadoMapa) => void;
@@ -203,6 +303,7 @@ export default function MapaBusEnVivo({
   paradaLat,
   paradaLng,
   paradaNombre = '',
+  unidad = '',
   interactivo = true,
   onEstado,
   style,
@@ -210,6 +311,10 @@ export default function MapaBusEnVivo({
   const webviewRef = useRef<WebView>(null);
   const [ubicacion, setUbicacion] = useState<UbicacionActual | null>(null);
   const [webviewListo, setWebviewListo] = useState(false);
+  // ¿El mapa está siguiendo al bus? Lo decide el HTML (deja de seguir cuando el
+  // padre mueve el mapa con el dedo) y lo avisa por postMessage. Acá solo sirve
+  // para una cosa: encender el botón cuando hay algo que centrar.
+  const [siguiendo, setSiguiendo] = useState(true);
 
   // El callback se guarda en una ref para que el efecto de suscripción NO dependa
   // de él: si dependiera, pasarle una función anónima desde el padre resuscribiría
@@ -258,11 +363,37 @@ export default function MapaBusEnVivo({
     <View style={[styles.contenedor, style]} pointerEvents={interactivo ? 'auto' : 'none'}>
       <WebView
         ref={webviewRef}
-        source={{ html: generarHtmlMapa(paradaLat, paradaLng, paradaNombre, interactivo) }}
+        source={{ html: generarHtmlMapa(paradaLat, paradaLng, paradaNombre, interactivo, unidad) }}
         onLoadEnd={() => setWebviewListo(true)}
+        onMessage={(evento) => {
+          try {
+            const datos = JSON.parse(evento.nativeEvent.data);
+            if (datos.tipo === 'seguimiento') setSiguiendo(!!datos.activo);
+          } catch {
+            // mensaje no reconocido: se ignora
+          }
+        }}
         style={styles.mapa}
         scrollEnabled={interactivo}
       />
+
+      {/* CENTRAR: en la vista previa del inicio no va —ahí el mapa no se puede
+          tocar, así que nunca se descoloca—. En el mapa completo está siempre,
+          para que se lo encuentre cuando hace falta, y se ENCIENDE en zafiro
+          justo cuando el padre movió el mapa y perdió de vista al bus. */}
+      {interactivo && (
+        <View style={styles.controles}>
+          <BotonMapa
+            icono="crosshairs-gps"
+            texto={siguiendo ? undefined : 'Centrar'}
+            tono={siguiendo ? 'vidrio' : 'zafiro'}
+            accesibilidad="Centrar el mapa en el bus y tu parada"
+            onPress={() =>
+              webviewRef.current?.postMessage(JSON.stringify({ accion: 'centrar' }))
+            }
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -270,4 +401,7 @@ export default function MapaBusEnVivo({
 const styles = StyleSheet.create({
   contenedor: { flex: 1, overflow: 'hidden' },
   mapa: { flex: 1, backgroundColor: 'transparent' },
+  // Abajo a la derecha, donde llega el pulgar. Los 30 px de abajo dejan a la
+  // vista la atribución de OpenStreetMap, que es obligatoria.
+  controles: { position: 'absolute', right: ESPACIO.interno, bottom: 30 },
 });

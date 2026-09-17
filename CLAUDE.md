@@ -60,7 +60,10 @@ No existe registro público para ningún rol. Ver sección 6.
 | Mapa web | react-leaflet + leaflet (+ `@types/leaflet`) |
 | App móvil | React Native + Expo (TypeScript) + Expo Router |
 | UI móvil | React Native Paper |
-| Mapa móvil | `react-native-webview` cargando HTML con Leaflet embebido — **NO** usar react-native-maps/Google Maps, para mantener consistencia con el informe ya entregado (especifica Leaflet/OpenStreetMap) |
+| Identidad móvil | **"Liquid Obsidian & Specular Glass"** — diseño oscuro generado en Google Stitch (proyecto `RutaEscolar Ceiba`, `assets/f3c88cbb…`). Un solo tema, OSCURO: la app no sigue el modo del teléfono. Tokens en `constants/tema.ts` + `constants/estilos.ts`; el material es `components/Vidrio.tsx`. Ver ESTADO-ACTUAL §3-quinquiesdecies |
+| Tipografía móvil | Outfit (titulares y cifras) + Plus Jakarta Sans (texto), vía `@expo-google-fonts/*`. ⚠️ El grosor se cambia **cambiando de familia**, nunca con `fontWeight`, y cada peso se importa de su subcarpeta (`@expo-google-fonts/outfit/500Medium`) para no meter los nueve pesos en el APK |
+| Vidrio y degradados móviles | `expo-blur` + `expo-linear-gradient` (oficiales de Expo). El desenfoque va **apagado por defecto**: se enciende solo donde hay algo real que desenfocar |
+| Mapa móvil | `react-native-webview` con Leaflet embebido — **NO** react-native-maps/Google Maps. **El servidor oficial de OSM bloqueó a la app** (403 "Access blocked", verificado con teselas reales de La Ceiba con y sin User-Agent de navegador). Se usa **`tile.openstreetmap.de`** (FOSSGIS e.V.): el MISMO estilo clásico de OpenStreetMap de siempre — agua azul, parques verdes, calles amarillas —, sin API key. **Esri World Street Map** queda de respaldo automático. ⚠️ **El mapa va CLARO aunque la app sea oscura**: oscurecerlo apaga justo lo que sirve — distinguir calle, parque y río. La unidad con la app la dan las cápsulas y la ruta que van ENCIMA. Todo en `constants/mapa.ts` (una línea para cambiar de proveedor). **Anotar en el informe** |
 | Backend | Firebase Firestore + Firebase Authentication (Email/Password) |
 | Notificaciones push | Expo Push Notifications API directo (`expo-notifications`) — **NO** Firebase Cloud Messaging, **NO** Cloud Functions |
 | Plan de Firebase | Spark (gratis) — todo el diseño evita depender de Cloud Functions o plan Blaze |

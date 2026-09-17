@@ -1,7 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, Image, StyleSheet, View } from 'react-native';
-import { Text, useTheme } from 'react-native-paper';
+import { Text } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+import Degradado from '@/components/Degradado';
+import { NOCHE_OBSIDIANA } from '@/constants/tema';
 
 // ============================================
 // PORTADA DE LA APP — EL BUSITO ANDANDO
@@ -28,9 +31,14 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 const PASO = 28;
 const RAYAS = 16;
 
-export default function PortadaAnimada() {
-  const tema = useTheme();
+// Sobre el degradado azul todo va en blanco: es la única pantalla de la app con
+// fondo oscuro, así que los colores del tema (pensados para fondo claro) no
+// sirven acá y se escriben a mano.
+const BLANCO = '#FFFFFF';
+const BLANCO_TENUE = 'rgba(255, 255, 255, 0.5)';
+const BLANCO_TEXTO = 'rgba(255, 255, 255, 0.88)';
 
+export default function PortadaAnimada() {
   // Valores animados. Se guardan en `useRef` para que sobrevivan a los redibujos
   // sin reiniciarse (si se crearan en cada render, la animación se trabaría).
   const entrada = useRef(new Animated.Value(0)).current; // aparición del logo
@@ -90,7 +98,17 @@ export default function PortadaAnimada() {
   }, [entrada, carretera, rebote]);
 
   return (
-    <View style={[styles.fondo, { backgroundColor: tema.colors.background }]}>
+    // ⚠️ EL DEGRADADO VA DETRÁS, NO ALREDEDOR (mismo motivo que en
+    // PantallaBase): lo dibuja un componente NATIVO, y si el binario que está
+    // corriendo no lo trae, no dibuja nada. Con el contenido adentro, la
+    // portada quedaba completamente vacía; como capa de fondo, lo peor que
+    // pasa es que se vea sobre el color plano.
+    <View style={styles.fondo}>
+      <Degradado
+        colores={NOCHE_OBSIDIANA}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
       <Animated.View
         style={{
           opacity: entrada,
@@ -120,7 +138,7 @@ export default function PortadaAnimada() {
             },
           ]}
         >
-          <MaterialCommunityIcons name="bus-school" size={54} color={tema.colors.primary} />
+          <MaterialCommunityIcons name="bus-school" size={54} color={BLANCO} />
         </Animated.View>
 
         {/* La carretera: una fila de rayas que se desplaza un PASO y reinicia */}
@@ -141,17 +159,14 @@ export default function PortadaAnimada() {
             ]}
           >
             {Array.from({ length: RAYAS }).map((_, i) => (
-              <View
-                key={i}
-                style={[styles.raya, { backgroundColor: tema.colors.outlineVariant }]}
-              />
+              <View key={i} style={[styles.raya, { backgroundColor: BLANCO_TENUE }]} />
             ))}
           </Animated.View>
         </View>
       </View>
 
       <Animated.View style={{ opacity: entrada }}>
-        <Text variant="labelLarge" style={{ color: tema.colors.onSurfaceVariant }}>
+        <Text variant="labelLarge" style={{ color: BLANCO_TEXTO }}>
           Preparando tu viaje…
         </Text>
       </Animated.View>
@@ -160,7 +175,16 @@ export default function PortadaAnimada() {
 }
 
 const styles = StyleSheet.create({
-  fondo: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 20 },
+  fondo: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    gap: 20,
+    // Color de respaldo: el mismo primer tono del degradado, para que no se
+    // vea un salto mientras la capa nativa carga
+    backgroundColor: NOCHE_OBSIDIANA[1],
+  },
   logo: { width: 168, height: 168, borderRadius: 34 },
   escena: { alignItems: 'center', gap: 6 },
   bus: { alignItems: 'center' },

@@ -5,7 +5,6 @@ import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import {
   collection,
-  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -47,6 +46,7 @@ const MAX_POR_LOTE = 100;
 export type DatosPush =
   | { tipo: "mensaje"; otroId: string; otroNombre: string }
   | { tipo: "aviso"; canalId: string; canalNombre: string }
+  | { tipo: "incidencia"; rutaNombre: string }
   | { tipo: "hijos" };
 
 // ============================================
@@ -128,10 +128,19 @@ export async function registrarTokenPush(uid: string): Promise<EstadoPush> {
 const cacheNinos = new Map<string, Nino | null>();
 const cacheTokens = new Map<string, string | null>();
 
+// Tokens que Expo ya rechazó con "DeviceNotRegistered" (la app se desinstaló o
+// se reinstaló). NO se borran de la ficha del otro usuario: las reglas no dejan
+// que nadie edite un perfil ajeno, y está bien que no. Se recuerdan acá para no
+// seguir mandándoles avisos en esta sesión; cuando esa persona vuelva a abrir
+// la app, su token nuevo reemplaza al viejo solo.
+const tokensMuertos = new Set<string>();
+
 async function obtenerNino(ninoId: string): Promise<Nino | null> {
   if (cacheNinos.has(ninoId)) return cacheNinos.get(ninoId) ?? null;
-  const snap = await getDoc(doc(db, "ninos", ninoId));
-  const nino = snap.exists() ? ({ id: snap.id, ...snap.data() } as Nino) : null;
+  // Si el conductor no tiene permiso para leer a este niño (no lo lleva), la
+  // lectura falla y simplemente no se avisa: nunca se rompe la pantalla
+  const snap = await getDoc(doc(db, "ninos", ninoId)).catch(() => null);
+  const nino = snap?.exists() ? ({ id: snap.id, ...snap.data() } as Nino) : null;
   cacheNinos.set(ninoId, nino);
   return nino;
 }
@@ -140,7 +149,8 @@ async function obtenerTokenDeUsuario(usuarioId: string): Promise<string | null> 
   const enCache = cacheTokens.get(usuarioId);
   if (enCache) return enCache;
   const snap = await getDoc(doc(db, "usuarios", usuarioId));
-  const token = snap.exists() ? ((snap.data() as Usuario).expoPushToken ?? null) : null;
+  const leido = snap.exists() ? ((snap.data() as Usuario).expoPushToken ?? null) : null;
+  const token = leido && !tokensMuertos.has(leido) ? leido : null;
   // Solo se cachea si HAY token. Si el padre todavía no abrió la app (sin token
   // guardado), el próximo evento vuelve a consultar: puede que ya lo tenga —
   // cachear el "no tiene" lo dejaría sin avisos por el resto del viaje.
@@ -285,12 +295,10 @@ async function enviarPush(
 
     if (datos?.status === "error") {
       const error = datos?.details?.error ?? datos?.message ?? "desconocido";
-      // Token muerto: se limpia para que los siguientes eventos no lo intenten
-      if (error === "DeviceNotRegistered" && opciones?.destinatarioId) {
-        cacheTokens.delete(opciones.destinatarioId);
-        await updateDoc(doc(db, "usuarios", opciones.destinatarioId), {
-          expoPushToken: deleteField(),
-        }).catch(() => {});
+      // Token muerto: no se le vuelve a mandar en esta sesión (ver tokensMuertos)
+      if (error === "DeviceNotRegistered") {
+        tokensMuertos.add(token);
+        if (opciones?.destinatarioId) cacheTokens.delete(opciones.destinatarioId);
       }
       return { ok: false, error };
     }
@@ -350,12 +358,10 @@ async function enviarPushMultiple(
 
       resultados.forEach((resultado, indice) => {
         if (resultado?.status !== "error") return;
-        const destinatarioId = lote[indice]?.destinatarioId;
-        if (resultado?.details?.error === "DeviceNotRegistered" && destinatarioId) {
-          cacheTokens.delete(destinatarioId);
-          updateDoc(doc(db, "usuarios", destinatarioId), {
-            expoPushToken: deleteField(),
-          }).catch(() => {});
+        const mensaje = lote[indice];
+        if (resultado?.details?.error === "DeviceNotRegistered" && mensaje) {
+          tokensMuertos.add(mensaje.token);
+          if (mensaje.destinatarioId) cacheTokens.delete(mensaje.destinatarioId);
         }
       });
     } catch {
@@ -410,6 +416,20 @@ export async function notificarEventoAlPadre(
   } else if (evento === "subio") {
     titulo = `${nino.nombre} subió al bus`;
     cuerpo = `Va en camino a ${destino}.`;
+  } else if (evento === "anulado") {
+    // El padre pudo haber recibido antes un aviso que ya no es cierto (por
+    // ejemplo "subió al bus" cuando en realidad no subió). Callarse la
+    // corrección sería peor que el error original: se queda creyendo algo falso.
+    // No se dice QUÉ se corrigió porque acá no se sabe; se lo manda a mirar el
+    // estado real, que siempre es la fuente de verdad.
+    titulo = `Corrección sobre ${nino.nombre}`;
+    cuerpo = `El conductor corrigió una marca que había hecho por error. Mirá su estado actual en la app.`;
+  } else if (evento === "no_estaba") {
+    // El aviso más importante de todos: el padre tiene que enterarse AHORA, no
+    // cuando el niño no llegue a la escuela. Se dice la hora exacta a propósito,
+    // porque es lo que zanja la discusión de si el bus pasó o no.
+    titulo = `${nino.nombre} no estaba en la parada`;
+    cuerpo = `El bus pasó a las ${horaActual()} y no pudo recogerlo. Comunicate con la administración.`;
   } else {
     titulo = `${nino.nombre} llegó a ${destino}`;
     cuerpo = `Bajó del bus a las ${horaActual()}.`;
@@ -571,6 +591,126 @@ export async function notificarAvisoNuevo(
     }));
 
   await enviarPushMultiple(mensajes, { tipo: "aviso", canalId, canalNombre });
+}
+
+
+// ============================================
+// Novedad del viaje reportada por el conductor
+// ============================================
+// Va a DOS públicos distintos, y por eso el mensaje es distinto para cada uno:
+//
+//   · AL PADRE — le importa su hijo, no la logística. Recibe qué pasó y qué
+//     significa para el viaje, sin la placa ni el nombre de la ruta, que no le
+//     dicen nada. Solo se avisa a los padres de los niños que en ese momento
+//     van ARRIBA del bus: al que todavía no lo recogieron, un aviso de "el bus
+//     tuvo un problema" lo asusta sin motivo.
+//
+//   · AL ADMIN — le importa la operación. Recibe quién, en qué unidad y en qué
+//     ruta, que es exactamente lo que necesita para levantar el teléfono y
+//     resolver.
+//
+// Ninguna de las dos hace fallar a la otra: se envían por separado y los
+// errores se tragan. La novedad ya quedó registrada en Firestore antes de
+// llegar acá (ver incidenciasService).
+export async function notificarIncidencia(datos: {
+  tipo: string;
+  texto: string;
+  rutaNombre: string;
+  busPlaca: string;
+  conductorNombre: string;
+  ninoIdsABordo: string[];
+}): Promise<{ avisados: number }> {
+  const descripcion = DESCRIPCION_PARA_EL_PADRE[datos.tipo] ?? "El conductor reportó una novedad.";
+  // Lo que escribió el conductor manda sobre el texto genérico: si se tomó el
+  // trabajo de escribirlo a mitad de viaje, es porque dice algo más preciso.
+  const cuerpoPadre = datos.texto ? `${descripcion} ${datos.texto}` : descripcion;
+
+  let avisados = 0;
+
+  // --- A los padres de los niños que van a bordo ---
+  if (datos.ninoIdsABordo.length > 0) {
+    try {
+      // Solo los niños de a bordo, uno por uno (con caché): el conductor no
+      // puede —ni necesita— leer la lista entera de niños
+      const aBordo = await Promise.all(datos.ninoIdsABordo.map((id) => obtenerNino(id)));
+      const padreIds = new Set<string>();
+      aBordo.forEach((nino) => {
+        if (nino?.padreId) padreIds.add(nino.padreId);
+      });
+
+      const destinatarios = await Promise.all(
+        [...padreIds].map(async (padreId) => ({
+          padreId,
+          token: await obtenerTokenDeUsuario(padreId),
+        }))
+      );
+      const mensajes = destinatarios
+        .filter((d): d is { padreId: string; token: string } => !!d.token)
+        .map((d) => ({
+          token: d.token,
+          titulo: "Novedad en la ruta de tu hijo",
+          cuerpo: cuerpoPadre,
+          destinatarioId: d.padreId,
+        }));
+      avisados = mensajes.length;
+      await enviarPushMultiple(mensajes, { tipo: "incidencia", rutaNombre: datos.rutaNombre });
+    } catch {
+      // Sin señal no se avisa, pero la novedad ya quedó registrada
+    }
+  }
+
+  // --- A la administración ---
+  try {
+    const snapAdmin = await getDocs(
+      query(collection(db, "usuarios"), where("rol", "==", "admin"))
+    );
+    const mensajesAdmin: { token: string; titulo: string; cuerpo: string; destinatarioId: string }[] =
+      [];
+    for (const d of snapAdmin.docs) {
+      const admin = d.data() as Usuario;
+      if (!admin.activo) continue;
+      const token = await obtenerTokenDeUsuario(d.id);
+      if (!token) continue;
+      mensajesAdmin.push({
+        token,
+        titulo: `${descripcionCorta(datos.tipo)} · Unidad ${datos.busPlaca}`,
+        // Todo el contexto en una línea: quién, dónde y qué
+        cuerpo: `${datos.conductorNombre} reportó en la ruta ${datos.rutaNombre}.${
+          datos.texto ? ` "${datos.texto}"` : ""
+        }`,
+        destinatarioId: d.id,
+      });
+    }
+    await enviarPushMultiple(mensajesAdmin, {
+      tipo: "incidencia",
+      rutaNombre: datos.rutaNombre,
+    });
+  } catch {
+    // Igual que arriba: el registro es lo que no se puede perder
+  }
+
+  return { avisados };
+}
+
+// Los textos viven acá abajo y no en el servicio de incidencias para que este
+// archivo se pueda leer solo: es el que arma lo que el usuario termina viendo.
+const DESCRIPCION_PARA_EL_PADRE: Record<string, string> = {
+  averia: "El bus tuvo un problema mecánico. Los niños están bien; la ruta va a demorarse.",
+  trafico: "Hay mucho tráfico en la ruta. El bus va a llegar más tarde de lo normal.",
+  clima: "El mal tiempo está retrasando la ruta. El bus avanza con precaución.",
+  demora: "El bus va con retraso respecto del horario habitual.",
+  otro: "El conductor reportó una novedad en la ruta.",
+};
+
+function descripcionCorta(tipo: string): string {
+  const cortas: Record<string, string> = {
+    averia: "Avería",
+    trafico: "Tráfico",
+    clima: "Mal tiempo",
+    demora: "Retraso",
+    otro: "Novedad",
+  };
+  return cortas[tipo] ?? "Novedad";
 }
 
 // ============================================

@@ -25,7 +25,12 @@ import {
   inspeccionarDatosDePrueba,
   type InventarioPrueba,
 } from "../services/datosPruebaService";
+import {
+  AVISO_ACCESOS_PENDIENTES,
+  recalcularAccesosDespuesDeGuardar,
+} from "../services/accesoConductoresService";
 import type { Usuario } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 // Herramienta de prueba: carga un set chico de datos (incluye un transbordo) para
 // ver el sistema funcionando, y permite borrarlo después para dejar la base
@@ -83,7 +88,13 @@ export default function DatosPruebaScreen() {
     try {
       const r = await cargarDatosDePrueba(c1 ?? "", c2 ?? "");
       setResultado(r.mensaje);
-      if (r.creado) notifications.show({ color: "green", message: "Datos de prueba cargados." });
+      if (r.creado) {
+        notifications.show({ color: "green", message: "Datos de prueba cargados." });
+        // Los conductores de los buses de prueba tienen que poder ver a sus niños
+        if (!(await recalcularAccesosDespuesDeGuardar())) {
+          notifications.show(AVISO_ACCESOS_PENDIENTES);
+        }
+      }
       revisarDeNuevo();
     } catch {
       setResultado(
@@ -122,6 +133,9 @@ export default function DatosPruebaScreen() {
     cerrarConfirmacion();
     try {
       const r = await borrarDatosDePrueba();
+      if (!(await recalcularAccesosDespuesDeGuardar())) {
+        notifications.show(AVISO_ACCESOS_PENDIENTES);
+      }
       notifications.show({
         color: "green",
         message:
@@ -143,7 +157,7 @@ export default function DatosPruebaScreen() {
   };
 
   if (!conductores) {
-    return <Loader />;
+    return <CargandoBus texto="Cargando…" />;
   }
 
   const opciones = conductores.map((c) => ({ value: c.id, label: c.nombre }));

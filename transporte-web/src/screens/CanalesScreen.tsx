@@ -10,7 +10,6 @@ import {
   Flex,
   Group,
   Image,
-  Loader,
   Modal,
   Paper,
   ScrollArea,
@@ -46,10 +45,13 @@ import {
 } from "../services/canalesService";
 import { notificarAvisoNuevo } from "../services/notificacionesService";
 import { listarEscuelas } from "../services/escuelasService";
+import Sugerencias from "../components/Sugerencias";
+import { enumerar, plural } from "../utils/texto";
 import { listarNinos } from "../services/ninosService";
 import { listarUsuarios } from "../services/usuariosService";
 import { comprimirImagen } from "../utils/imagen";
 import type { Aviso, Canal, Escuela, Nino, Usuario } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 // Fecha y hora legible de un aviso
 function cuando(a: Aviso): string {
@@ -139,12 +141,48 @@ export default function CanalesScreen() {
     return usuarios.filter((u) => ids.has(u.id));
   }, [seleccionId, miembrosPorCanal, usuarios]);
 
-  const abrirCrear = () => {
+  // `escuelaSugerida` llega desde el panel de sugerencias: abre el formulario
+  // con la escuela ya elegida y el nombre propuesto. Sin eso, "crear el canal
+  // que falta" son cinco pasos más y el admin abandona a mitad de camino.
+  const abrirCrear = (escuelaSugerida?: Escuela) => {
     setEditando(null);
     form.reset();
+    if (escuelaSugerida) {
+      form.setValues({
+        nombre: `Avisos ${escuelaSugerida.nombre}`,
+        escuelaId: escuelaSugerida.id,
+        descripcion: "",
+      });
+    }
     setFoto(null);
     open();
   };
+
+  // ============================================
+  // QUÉ LE FALTA A ESTA PANTALLA
+  // ============================================
+  // Una escuela sin canal es un agujero silencioso: los padres de esa escuela
+  // no reciben NINGÚN comunicado y nadie se entera hasta que hace falta avisar
+  // algo urgente. No falla nada, simplemente no llega nada.
+  //
+  // El memo solo CALCULA qué falta; los botones se arman al dibujar (más
+  // abajo). Si las acciones vivieran acá adentro, el memo dependería de
+  // `abrirCrear`, que se recrea en cada render, y se recalcularía siempre.
+  const faltantes = useMemo(() => {
+    if (!canales) return { sinCanal: [] as Escuela[], sinPublico: [] as Canal[] };
+
+    const conCanal = new Set(canales.filter((c) => c.activo !== false).map((c) => c.escuelaId));
+    const conNinos = new Set(ninos.filter((n) => n.activo && n.escuelaId).map((n) => n.escuelaId));
+
+    return {
+      // Solo las escuelas que TIENEN alumnos: una escuela cargada pero todavía
+      // sin niños no necesita canal, y sugerirlo sería ruido.
+      sinCanal: escuelas.filter((e) => e.activa && conNinos.has(e.id) && !conCanal.has(e.id)),
+      // Y al revés: un canal cuya escuela se quedó sin alumnos no le llega a
+      // nadie. La membresía no se guarda, se deriva de los hijos de cada padre.
+      sinPublico: canales.filter((c) => c.activo !== false && !conNinos.has(c.escuelaId)),
+    };
+  }, [canales, escuelas, ninos]);
 
   const abrirEditar = (canal: Canal) => {
     setEditando(canal);
@@ -227,14 +265,14 @@ export default function CanalesScreen() {
   };
 
   if (!canales) {
-    return <Loader />;
+    return <CargandoBus texto="Cargando los canales…" />;
   }
 
   return (
     <Stack h="calc(100vh - 92px)">
       <Group justify="space-between">
         <Title order={3}>Canales informativos</Title>
-        <Button leftSection={<IconPlus size={16} />} onClick={abrirCrear}>
+        <Button leftSection={<IconPlus size={16} />} onClick={() => abrirCrear()}>
           Nuevo canal
         </Button>
       </Group>
@@ -244,6 +282,41 @@ export default function CanalesScreen() {
         automáticamente el canal de la escuela de cada uno de sus hijos — no hay que inscribir
         a nadie.
       </Alert>
+
+      <Sugerencias
+        sugerencias={[
+          ...(faltantes.sinCanal.length > 0
+            ? [
+                {
+                  id: "sin-canal",
+                  texto:
+                    faltantes.sinCanal.length === 1
+                      ? `${faltantes.sinCanal[0].nombre} tiene alumnos pero no tiene canal de avisos: sus padres no reciben ningún comunicado.`
+                      : `${plural(faltantes.sinCanal.length, "escuela", "escuelas")} con alumnos no tienen canal de avisos (${enumerar(
+                          faltantes.sinCanal.map((e) => e.nombre)
+                        )}). Sus padres no reciben ningún comunicado.`,
+                  accion: {
+                    etiqueta:
+                      faltantes.sinCanal.length === 1
+                        ? "Crear su canal"
+                        : `Crear el de ${faltantes.sinCanal[0].nombre}`,
+                    alTocar: () => abrirCrear(faltantes.sinCanal[0]),
+                  },
+                },
+              ]
+            : []),
+          ...(faltantes.sinPublico.length > 0
+            ? [
+                {
+                  id: "sin-publico",
+                  texto: `${plural(faltantes.sinPublico.length, "canal", "canales")} no le llega a ningún padre porque su escuela no tiene alumnos activos (${enumerar(
+                    faltantes.sinPublico.map((c) => c.nombre)
+                  )}).`,
+                },
+              ]
+            : []),
+        ]}
+      />
 
       <Flex gap="md" style={{ flex: 1, minHeight: 0 }}>
         {/* Lista de canales */}

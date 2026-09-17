@@ -1,5 +1,6 @@
 import { doc, writeBatch } from "firebase/firestore";
 import { db } from "./firebase";
+import { auditar } from "./auditoriaService";
 import { listarRutas } from "./rutasService";
 import { listarNinos } from "./ninosService";
 import type { LugarRef, Nino, NinoEnRuta, Parada, Ruta } from "../types/models";
@@ -16,8 +17,9 @@ export interface ResumenMigracion {
   errores: { ruta: string; motivo: string }[];
 }
 
-// Firestore permite como máximo 500 operaciones por batch.
-const MAX_OPS_BATCH = 500;
+// Firestore permite como máximo 500 operaciones por lote; cada lote lleva además
+// su registro de auditoría, así que se deja margen.
+const TAMANO_LOTE = 450;
 
 // Caso DIRECTO por turno: mañana sube en casa y baja en escuela; tarde al revés.
 function derivarNinos(ruta: Ruta, ninosPorId: Map<string, Nino>): NinoEnRuta[] {
@@ -68,8 +70,10 @@ export async function migrarRutas(
 
   const resumen: ResumenMigracion = { total: rutas.length, migradas: 0, saltadas: 0, errores: [] };
 
-  let batch = writeBatch(db);
-  let ops = 0;
+  // Primero se calcula todo y recién después se escribe: así cada lote puede
+  // llevar su registro de auditoría con la lista exacta de rutas que toca
+  // (cambiar los niños de una ruta es un cambio sensible).
+  const actualizaciones: { id: string; ninos: NinoEnRuta[]; paradas: Parada[] }[] = [];
 
   for (let i = 0; i < rutas.length; i++) {
     const ruta = rutas[i];
@@ -79,15 +83,12 @@ export async function migrarRutas(
         resumen.saltadas++;
       } else {
         const ninosEnRuta = derivarNinos(ruta, ninosPorId);
-        const paradas = derivarParadas(ninosEnRuta, ninosPorId);
-        batch.update(doc(db, "rutas", ruta.id), { ninos: ninosEnRuta, paradas });
-        ops++;
+        actualizaciones.push({
+          id: ruta.id,
+          ninos: ninosEnRuta,
+          paradas: derivarParadas(ninosEnRuta, ninosPorId),
+        });
         resumen.migradas++;
-        if (ops >= MAX_OPS_BATCH) {
-          await batch.commit();
-          batch = writeBatch(db);
-          ops = 0;
-        }
       }
     } catch (e) {
       resumen.errores.push({ ruta: ruta.nombre || ruta.id, motivo: (e as Error).message });
@@ -95,6 +96,21 @@ export async function migrarRutas(
     onProgreso(i + 1, rutas.length);
   }
 
-  if (ops > 0) await batch.commit();
+  for (let desde = 0; desde < actualizaciones.length; desde += TAMANO_LOTE) {
+    const tanda = actualizaciones.slice(desde, desde + TAMANO_LOTE);
+    const batch = writeBatch(db);
+    const auditoriaId = auditar(
+      batch,
+      "rutas",
+      "migrar",
+      tanda.map((a) => a.id),
+      "Migración al formato con paradas y transbordo (todos los niños quedan directos)"
+    );
+    tanda.forEach((a) =>
+      batch.update(doc(db, "rutas", a.id), { ninos: a.ninos, paradas: a.paradas, auditoriaId })
+    );
+    await batch.commit();
+  }
+
   return resumen;
 }

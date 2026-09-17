@@ -36,6 +36,10 @@ import {
 } from "@tabler/icons-react";
 import MapaArmador, { type CandidatoEnMapa } from "./MapaArmador";
 import { guardarRutaConReceptoras, type CambioReceptora } from "../services/rutasService";
+import {
+  AVISO_ACCESOS_PENDIENTES,
+  recalcularAccesosDespuesDeGuardar,
+} from "../services/accesoConductoresService";
 import { derivarRecorrido } from "../utils/recorrido";
 import { distanciaAlMasCercano, formatearDistancia, type Coordenada } from "../utils/geo";
 import { TURNOS, etiquetaTurno, viajaEnTurno } from "../utils/turnos";
@@ -254,11 +258,14 @@ export default function ArmadorRuta({
       nombre: ruta?.nombre ?? "",
       busId: ruta?.busId ?? "",
       turno: (ruta?.turno ?? "") as Turno | "",
+      horaSalida: ruta?.horaSalida ?? "",
     },
     validate: {
       nombre: (v) => (v.trim() ? null : "El nombre es obligatorio"),
       busId: (v) => (v ? null : "Elegí la unidad"),
       turno: (v) => (v ? null : "Elegí el turno"),
+      // Es opcional; si se carga, tiene que ser una hora válida de 24 h
+      horaSalida: (v) => (!v || /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? null : "Hora inválida"),
     },
   });
 
@@ -598,6 +605,7 @@ export default function ArmadorRuta({
         escuelaIds,
         ninoIds: entradas.map((n) => n.ninoId),
         ninos: entradas,
+        horaSalida: valores.horaSalida,
       };
       const receptoras = calcularCambiosReceptoras(
         transbordosIniciales,
@@ -612,6 +620,10 @@ export default function ArmadorRuta({
         color: "green",
         message: ruta ? "Ruta actualizada." : "Ruta creada.",
       });
+      // Los niños que se agregaron tienen que aparecer en la app del conductor
+      if (!(await recalcularAccesosDespuesDeGuardar())) {
+        notifications.show(AVISO_ACCESOS_PENDIENTES);
+      }
       onGuardado();
     } catch {
       notifications.show({ color: "red", message: "No se pudo guardar la ruta." });
@@ -851,6 +863,14 @@ export default function ArmadorRuta({
               style={{ flex: "1 1 140px" }}
               data={TURNOS}
               {...form.getInputProps("turno")}
+            />
+            {/* Solo informativa: el conductor la ve en su app como su horario.
+                No impide iniciar el viaje antes ni después. */}
+            <TextInput
+              label="Hora de salida (opcional)"
+              type="time"
+              style={{ flex: "0 1 170px" }}
+              {...form.getInputProps("horaSalida")}
             />
             <MultiSelect
               label="Escuela(s) a las que llega este bus"

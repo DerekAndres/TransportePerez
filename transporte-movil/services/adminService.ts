@@ -7,8 +7,8 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { listarRegistrosDeViaje } from "./viajesService";
-import type { Bus, Ruta, Usuario, Viaje } from "../types/models";
+import { fechaDeHoy, listarRegistrosDeViaje } from "./viajesService";
+import type { Bus, Ruta, Suplencia, Usuario, Viaje } from "../types/models";
 
 // ============================================
 // APP DEL ADMIN — SOLO VIGILANCIA
@@ -21,19 +21,21 @@ import type { Bus, Ruta, Usuario, Viaje } from "../types/models";
 //   3. publicar un aviso en un canal.
 //
 // Por eso este servicio solo LEE (y la única escritura, publicar un aviso, vive
-// en canalesService). Las reglas de Firestore ya permiten todo esto sin cambios:
-// viajes, ubicaciones, rutas, buses y usuarios son legibles por cualquier
-// usuario autenticado.
+// en canalesService). Las reglas de Firestore le permiten al admin leer todo.
 
 // Cómo viene una ruta hoy. Es la fila que se muestra en el monitoreo.
 export interface EstadoRuta {
   rutaId: string;
   rutaNombre: string;
   turno?: "manana" | "tarde";
+  horaSalida?: string; // "HH:mm", informativa
+  busId: string;
   busPlaca: string;
   conductorNombre: string;
   conductorTelefono: string;
   conductorId: string;
+  // true si hoy la maneja un suplente y no el titular de la unidad
+  esSuplente: boolean;
   ninosTotal: number;
   estado: "sin_iniciar" | "en_curso" | "finalizado";
   viajeId?: string;
@@ -52,14 +54,16 @@ export interface CatalogoRutas {
   rutas: Ruta[];
   buses: Map<string, Bus>;
   conductores: Map<string, Usuario>;
+  suplencias: Map<string, Suplencia>; // busId → la suplencia vigente de hoy
 }
 
-// --- Rutas activas + sus buses y conductores ---
+// --- Rutas activas + sus buses, conductores y suplencias de hoy ---
 export async function cargarCatalogo(): Promise<CatalogoRutas> {
-  const [snapRutas, snapBuses, snapUsuarios] = await Promise.all([
+  const [snapRutas, snapBuses, snapUsuarios, snapSuplencias] = await Promise.all([
     getDocs(query(collection(db, "rutas"), where("activa", "==", true))),
     getDocs(collection(db, "buses")),
     getDocs(query(collection(db, "usuarios"), where("rol", "==", "conductor"))),
+    getDocs(query(collection(db, "suplencias"), where("fecha", "==", fechaDeHoy()))),
   ]);
 
   const rutas = snapRutas.docs
@@ -72,8 +76,14 @@ export async function cargarCatalogo(): Promise<CatalogoRutas> {
   const conductores = new Map(
     snapUsuarios.docs.map((d) => [d.id, { id: d.id, ...d.data() } as Usuario])
   );
+  const suplencias = new Map(
+    snapSuplencias.docs
+      .map((d) => ({ id: d.id, ...d.data() }) as Suplencia)
+      .filter((s) => !s.cancelada)
+      .map((s) => [s.busId, s] as [string, Suplencia])
+  );
 
-  return { rutas, buses, conductores };
+  return { rutas, buses, conductores, suplencias };
 }
 
 // --- Viajes de HOY, en vivo ---
@@ -154,17 +164,27 @@ export function armarEstadoDeRutas(
         .pop();
 
     const bus = catalogo.buses.get(ruta.busId);
-    const conductor = bus ? catalogo.conductores.get(bus.conductorId) : undefined;
+    const suplencia = catalogo.suplencias.get(ruta.busId);
+    // Quién la maneja HOY: si el viaje ya arrancó, quien lo inició; si no, el
+    // suplente del día o, sin suplencia, el titular. Es a quien el admin tiene
+    // que llamar, así que no puede ser siempre el titular.
+    const conductorId = viaje?.conductorId ?? suplencia?.conductorId ?? bus?.conductorId;
+    const conductor = conductorId ? catalogo.conductores.get(conductorId) : undefined;
     const conteo = viaje ? conteos.get(viaje.id) : undefined;
 
     return {
       rutaId: ruta.id,
       rutaNombre: ruta.nombre,
       turno: ruta.turno,
+      horaSalida: ruta.horaSalida,
+      // El id de la unidad, para poder abrir su ficha (foto, placa, capacidad)
+      // sin volver a buscarla
+      busId: ruta.busId,
       busPlaca: bus?.placa ?? "Sin unidad",
       conductorNombre: conductor?.nombre ?? "Sin conductor",
       conductorTelefono: conductor?.telefono ?? "",
       conductorId: conductor?.id ?? "",
+      esSuplente: !!conductor && !!bus && conductor.id !== bus.conductorId,
       ninosTotal: (ruta.ninoIds ?? []).length,
       estado: !viaje ? "sin_iniciar" : viaje.estado === "en_curso" ? "en_curso" : "finalizado",
       viajeId: viaje?.id,

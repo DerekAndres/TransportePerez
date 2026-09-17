@@ -1,4 +1,123 @@
-/* Reset mínimo — Mantine aporta sus propios estilos globales */
+/* ============================================================
+   FONDO Y AJUSTES GLOBALES DEL PANEL
+   ============================================================
+   El panel usa el mismo lenguaje visual que la app móvil
+   (identidad "Aurora Caribe"), para que las dos mitades del
+   sistema se lean como un solo producto y no como dos programas
+   distintos que comparten base de datos.
+
+   Lo que se trae del móvil: el fondo de "luz de agua", las
+   sombras teñidas de verde profundo y el turquesa de marca.
+   Lo que NO se calca: las esquinas de 28 px y los botones en
+   cápsula. Acá hay tablas y formularios largos, y esas medidas
+   —que en un teléfono se ven amables— en una tabla se ven
+   infladas. Se adaptó, no se copió.
+   ============================================================ */
+
 body {
   margin: 0;
+  min-height: 100vh;
+  /* La MISMA luz de agua del móvil (constants/tema.ts): blanco arriba y el
+     agua juntándose abajo. `fixed` la deja quieta mientras la página se
+     desplaza — si se moviera con el scroll se notaría y se vería barata. */
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #f4fcfb 35%,
+    #e4f4f0 72%,
+    #d6efe9 100%
+  );
+  background-attachment: fixed;
+}
+
+:root {
+  /* Mantine pinta sus superficies con estas variables. Al dejar el "cuerpo"
+     transparente, el degradado de arriba se ve a través de todo el panel. */
+  --mantine-color-body: transparent;
+  /* El borde por defecto pasa a ser un turquesa casi invisible: en el móvil
+     las tarjetas no llevan borde (las separa la sombra), y acá se busca lo
+     mismo sin romper las tablas, que sí necesitan una línea para leerse. */
+  --mantine-color-default-border: rgba(10, 110, 103, 0.12);
+}
+
+/* Las tarjetas y paneles sí son blanco puro: es el contraste contra el fondo
+   aturquesado lo que las hace flotar, igual que en la app. */
+.mantine-Card-root,
+.mantine-Paper-root {
+  background-color: #ffffff;
+}
+
+/* Tablas: filas más aireadas y encabezado sin peso visual, para que la
+   información mande sobre la grilla */
+.mantine-Table-th {
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #4b706b;
+}
+
+/* ============================================================
+   EL BUSITO DE CARGANDO
+   ============================================================
+   La misma animación que la app móvil, para que esperar se
+   sienta igual en las dos mitades del sistema.
+
+   El bus casi no se mueve: lo que corre es la CARRETERA debajo.
+   Es el truco de las caricaturas — el fondo se desplaza y el
+   personaje parece avanzar. Como todas las rayas son iguales,
+   cuando la fila avanza UN PASO y vuelve a empezar el salto es
+   invisible y el movimiento nunca se corta.
+   ============================================================ */
+
+@keyframes carretera-corre {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    /* Un paso = ancho de raya + hueco */
+    transform: translateX(-28px);
+  }
+}
+
+@keyframes bus-rebota {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+.cargando-bus__bus {
+  animation: bus-rebota 0.64s ease-in-out infinite;
+}
+
+.cargando-bus__carretera {
+  height: 4px;
+  overflow: hidden; /* recorta las rayas que asoman por los lados */
+}
+
+.cargando-bus__rayas {
+  display: flex;
+  animation: carretera-corre 0.62s linear infinite;
+}
+
+.cargando-bus__raya {
+  width: 16px;
+  height: 4px;
+  margin-right: 12px;
+  border-radius: 2px;
+  background: rgba(10, 110, 103, 0.22);
+  flex: 0 0 auto;
+}
+
+/* Quien pidió menos movimiento en su sistema operativo no debería recibir una
+   animación en bucle: se queda el bus quieto sobre su carretera. */
+@media (prefers-reduced-motion: reduce) {
+  .cargando-bus__bus,
+  .cargando-bus__rayas {
+    animation: none;
+  }
 }

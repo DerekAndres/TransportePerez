@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Button, Center, Loader, Stack, Text } from "@mantine/core";
+import { Button, Center, Stack, Text } from "@mantine/core";
 import ArmadorRuta from "../components/ArmadorRuta";
 import { listarRutas } from "../services/rutasService";
 import { listarBuses } from "../services/busesService";
@@ -8,6 +8,7 @@ import { listarEscuelas } from "../services/escuelasService";
 import { listarPuntos } from "../services/puntosService";
 import { listarNinos } from "../services/ninosService";
 import type { Bus, Escuela, Nino, Punto, Ruta } from "../types/models";
+import CargandoBus from "../components/CargandoBus";
 
 // Página del armador de rutas: /rutas/nueva y /rutas/:id
 //
@@ -71,7 +72,7 @@ export default function ArmadorRutaScreen() {
   if (!datos) {
     return (
       <Center mih={300}>
-        <Loader />
+        <CargandoBus texto="Cargando la ruta…" />
       </Center>
     );
   }

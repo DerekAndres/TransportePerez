@@ -1,12 +1,14 @@
 import {
   collection,
   doc,
+  getDoc,
   onSnapshot,
   Timestamp,
   writeBatch,
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { auditar, compararCampos } from "./auditoriaService";
 import type { Solicitud } from "../types/models";
 
 // ============================================
@@ -15,7 +17,8 @@ import type { Solicitud } from "../types/models";
 // El padre pide desde la app (inscripción de un hijo o cambio de ubicación) y
 // acá el admin resuelve. Al aprobar una inscripción se CREA el niño; al aprobar
 // una mudanza se actualiza su casa. Todo en un batch: solicitud y efecto quedan
-// consistentes (o se aplican los dos, o ninguno).
+// consistentes (o se aplican los dos, o ninguno). Cuando la aprobación toca la
+// ficha de un niño, en el mismo lote va su registro de auditoría.
 
 // --- Escucha EN VIVO todas las solicitudes (el admin ve llegar las nuevas) ---
 export function escucharSolicitudes(
@@ -44,6 +47,13 @@ export async function aprobarInscripcion(
 
   const lote = writeBatch(db);
   const refNino = doc(collection(db, "ninos"));
+  const auditoriaId = auditar(
+    lote,
+    "ninos",
+    "crear",
+    [refNino.id],
+    `Alta de ${datos.nombre} por inscripción aprobada`
+  );
   lote.set(refNino, {
     nombre: datos.nombre,
     grado: datos.grado,
@@ -58,6 +68,7 @@ export async function aprobarInscripcion(
     centroEducativo: "",
     rutaId: "",
     paradaId: "",
+    auditoriaId,
   });
   lote.update(doc(db, "solicitudes", solicitud.id), {
     estado: "aprobada",
@@ -91,8 +102,83 @@ export async function aprobarCambio(
       cambios.paradaTarde = solicitud.nuevaUbicacion;
     }
     if (Object.keys(cambios).length > 0) {
-      lote.update(doc(db, "ninos", solicitud.ninoId), cambios);
+      // Dónde se recoge y se deja a un niño es de lo más sensible del sistema
+      const previo = await getDoc(doc(db, "ninos", solicitud.ninoId));
+      const auditoriaId = auditar(
+        lote,
+        "ninos",
+        "cambiar_ubicacion",
+        [solicitud.ninoId],
+        "Cambio de ubicación permanente aprobado (lo pidió el padre)",
+        compararCampos(previo.data() ?? {}, cambios, ["parada", "paradaTarde"])
+      );
+      lote.update(doc(db, "ninos", solicitud.ninoId), { ...cambios, auditoriaId });
     }
+  }
+  lote.update(doc(db, "solicitudes", solicitud.id), {
+    estado: "aprobada",
+    resueltaEn: Timestamp.now(),
+    ...(respuesta ? { respuesta } : {}),
+  });
+  await lote.commit();
+}
+
+// --- Aprueba un CAMBIO DE ESCUELA ---
+// Actualiza `nino.escuelaId`. Lo que NO puede hacer sola esta función es
+// reacomodar la ruta: una ruta sirve a escuelas concretas (ruta.escuelaIds), así
+// que el niño puede quedar en un bus que ya no pasa por su colegio nuevo. El
+// panel avisa de eso al aprobar; reasignarlo es una decisión de quien arma las
+// rutas, no algo que corresponda automatizar.
+//
+// Efecto lateral bueno: el canal de avisos se corrige solo, porque la membresía
+// se deriva de la escuela del hijo y no de una lista de suscriptores.
+export async function aprobarCambioEscuela(
+  solicitud: Solicitud,
+  respuesta?: string
+): Promise<void> {
+  const lote = writeBatch(db);
+  if (solicitud.ninoId && solicitud.nuevaEscuelaId) {
+    const previo = await getDoc(doc(db, "ninos", solicitud.ninoId));
+    const auditoriaId = auditar(
+      lote,
+      "ninos",
+      "cambiar_escuela",
+      [solicitud.ninoId],
+      "Cambio de escuela aprobado (lo pidió el padre)",
+      compararCampos(previo.data() ?? {}, { escuelaId: solicitud.nuevaEscuelaId }, ["escuelaId"])
+    );
+    lote.update(doc(db, "ninos", solicitud.ninoId), {
+      escuelaId: solicitud.nuevaEscuelaId,
+      auditoriaId,
+    });
+  }
+  lote.update(doc(db, "solicitudes", solicitud.id), {
+    estado: "aprobada",
+    resueltaEn: Timestamp.now(),
+    ...(respuesta ? { respuesta } : {}),
+  });
+  await lote.commit();
+}
+
+// --- Aprueba un CAMBIO DE TURNO ---
+// Mismo cuidado que el de escuela: cada ruta tiene su turno, así que pasar de
+// "solo mañana" a "ambos" exige sumar al niño a una ruta de la tarde.
+export async function aprobarCambioTurno(
+  solicitud: Solicitud,
+  respuesta?: string
+): Promise<void> {
+  const lote = writeBatch(db);
+  if (solicitud.ninoId && solicitud.nuevoTurno) {
+    const previo = await getDoc(doc(db, "ninos", solicitud.ninoId));
+    const auditoriaId = auditar(
+      lote,
+      "ninos",
+      "cambiar_turno",
+      [solicitud.ninoId],
+      "Cambio de turno aprobado (lo pidió el padre)",
+      compararCampos(previo.data() ?? {}, { turno: solicitud.nuevoTurno }, ["turno"])
+    );
+    lote.update(doc(db, "ninos", solicitud.ninoId), { turno: solicitud.nuevoTurno, auditoriaId });
   }
   lote.update(doc(db, "solicitudes", solicitud.id), {
     estado: "aprobada",

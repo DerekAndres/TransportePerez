@@ -12,14 +12,18 @@ import {
   getDocs,
   orderBy,
   query,
-  setDoc,
   Timestamp,
   updateDoc,
   where,
   writeBatch,
 } from "firebase/firestore";
 import { db, firebaseConfig } from "./firebase";
+import { auditar } from "./auditoriaService";
 import type { Nino, Rol, Usuario } from "../types/models";
+
+// Dar de alta, dar de baja, archivar y restaurar una cuenta son cambios
+// SENSIBLES: van en un lote junto con su registro de auditoría (ver
+// auditoriaService.ts). Editar nombre, teléfono o foto no lo es.
 
 // --- Lista todos los usuarios, ordenados por nombre ---
 export async function listarUsuarios(): Promise<Usuario[]> {
@@ -63,10 +67,20 @@ export async function crearUsuario(datos: {
       datos.email,
       passwordTemporal
     );
+    const uid = credencial.user.uid;
 
     // El doc de Firestore se escribe con la sesión del ADMIN (instancia
-    // principal), porque las reglas solo permiten crear usuarios a un admin
-    await setDoc(doc(db, "usuarios", credencial.user.uid), {
+    // principal), porque las reglas solo permiten crear usuarios a un admin, y
+    // en el mismo lote que su registro de auditoría
+    const lote = writeBatch(db);
+    const auditoriaId = auditar(
+      lote,
+      "usuarios",
+      "crear",
+      [uid],
+      `Alta de ${datos.rol} ${datos.nombre} (${datos.email})`
+    );
+    lote.set(doc(db, "usuarios", uid), {
       rol: datos.rol,
       nombre: datos.nombre,
       telefono: datos.telefono,
@@ -76,7 +90,9 @@ export async function crearUsuario(datos: {
       debeCompletarPerfil: true,
       activo: true,
       creadoEn: Timestamp.now(),
+      auditoriaId,
     });
+    await lote.commit();
 
     // Email para que el usuario defina su propia contraseña
     await sendPasswordResetEmail(authSecundaria, datos.email);
@@ -102,6 +118,8 @@ export async function enviarCorreoRestablecer(email: string): Promise<void> {
 }
 
 // --- Actualiza nombre/teléfono/foto de un usuario existente ---
+// El nombre lo administra SOLO el panel: desde la app el usuario no puede
+// cambiárselo (así nadie se renombra "Administración" para confundir en el chat).
 export async function actualizarUsuario(
   id: string,
   datos: { nombre: string; telefono: string; foto?: string }
@@ -110,8 +128,19 @@ export async function actualizarUsuario(
 }
 
 // --- Activa o desactiva un usuario (no se borran: se conserva el historial) ---
+// Desactivar es lo que le quita el acceso: las reglas de Firestore rechazan todo
+// lo que pida una cuenta con activo == false, aunque tenga la sesión abierta.
 export async function cambiarActivoUsuario(id: string, activo: boolean): Promise<void> {
-  await updateDoc(doc(db, "usuarios", id), { activo });
+  const lote = writeBatch(db);
+  const auditoriaId = auditar(
+    lote,
+    "usuarios",
+    activo ? "activar" : "desactivar",
+    [id],
+    activo ? "Cuenta reactivada" : "Cuenta desactivada: ya no puede usar la app"
+  );
+  lote.update(doc(db, "usuarios", id), { activo, auditoriaId });
+  await lote.commit();
 }
 
 // --- Los hijos de un padre (para saber a cuántos alcanza el archivado) ---
@@ -127,7 +156,8 @@ export async function listarHijosDePadre(padreId: string): Promise<Nino[]> {
 // "BORRADO LÓGICO" en models.ts para el porqué.
 //
 // Todo va en un solo lote: o se archivan el padre y sus hijos, o no se archiva
-// nada. Nunca queda un niño suelto sin padre.
+// nada. Nunca queda un niño suelto sin padre. El usuario y los niños llevan cada
+// uno su registro de auditoría, porque las reglas los validan por colección.
 export async function eliminarUsuario(usuario: Usuario, motivo: string): Promise<void> {
   const lote = writeBatch(db);
   const marca = {
@@ -137,11 +167,29 @@ export async function eliminarUsuario(usuario: Usuario, motivo: string): Promise
     activo: false,
   };
 
-  lote.update(doc(db, "usuarios", usuario.id), marca);
+  const auditoriaUsuario = auditar(
+    lote,
+    "usuarios",
+    "archivar",
+    [usuario.id],
+    `Archivó a ${usuario.nombre}. Motivo: ${motivo || "—"}`
+  );
+  lote.update(doc(db, "usuarios", usuario.id), { ...marca, auditoriaId: auditoriaUsuario });
 
   if (usuario.rol === "padre") {
     const hijos = await listarHijosDePadre(usuario.id);
-    hijos.forEach((h) => lote.update(doc(db, "ninos", h.id), marca));
+    if (hijos.length > 0) {
+      const auditoriaHijos = auditar(
+        lote,
+        "ninos",
+        "archivar",
+        hijos.map((h) => h.id),
+        `Archivados junto con su padre, ${usuario.nombre}`
+      );
+      hijos.forEach((h) =>
+        lote.update(doc(db, "ninos", h.id), { ...marca, auditoriaId: auditoriaHijos })
+      );
+    }
   }
 
   await lote.commit();
@@ -160,11 +208,29 @@ export async function restaurarUsuario(usuario: Usuario): Promise<void> {
     activo: true,
   };
 
-  lote.update(doc(db, "usuarios", usuario.id), restaurar);
+  const auditoriaUsuario = auditar(
+    lote,
+    "usuarios",
+    "restaurar",
+    [usuario.id],
+    `Restauró a ${usuario.nombre}`
+  );
+  lote.update(doc(db, "usuarios", usuario.id), { ...restaurar, auditoriaId: auditoriaUsuario });
 
   if (usuario.rol === "padre") {
-    const hijos = await listarHijosDePadre(usuario.id);
-    hijos.filter((h) => h.eliminado).forEach((h) => lote.update(doc(db, "ninos", h.id), restaurar));
+    const hijos = (await listarHijosDePadre(usuario.id)).filter((h) => h.eliminado);
+    if (hijos.length > 0) {
+      const auditoriaHijos = auditar(
+        lote,
+        "ninos",
+        "restaurar",
+        hijos.map((h) => h.id),
+        `Restaurados junto con su padre, ${usuario.nombre}`
+      );
+      hijos.forEach((h) =>
+        lote.update(doc(db, "ninos", h.id), { ...restaurar, auditoriaId: auditoriaHijos })
+      );
+    }
   }
 
   await lote.commit();
