@@ -20,6 +20,11 @@ export async function logout(): Promise<void> {
 }
 
 // --- Busca el documento de Firestore (rol, nombre, etc.) del usuario autenticado ---
+// Devuelve null SOLO si el documento no existe (esa cuenta no la creó la
+// administración). Si falla la lectura —sin señal, permiso denegado— LANZA el
+// error en vez de devolver null: quien llama tiene que poder distinguir "no
+// está registrado" de "no se pudo averiguar", porque la primera cierra la
+// sesión y la segunda no.
 export async function obtenerPerfilUsuario(uid: string): Promise<Usuario | null> {
   const snap = await getDoc(doc(db, "usuarios", uid));
   if (!snap.exists()) return null;
@@ -37,8 +42,28 @@ export function escucharCambiosSesion(
 // Es el MISMO mecanismo que usa el admin al crear cuentas: nadie maneja
 // contraseñas en texto plano. Sirve para "¿Olvidaste tu contraseña?" del login
 // y para "Cambiar contraseña" en Configuración.
+//
+// QUIÉN PUEDE CAMBIAR UNA CONTRASEÑA, de verdad: solo quien tenga acceso al
+// BUZÓN de ese correo. Firebase manda un enlace con un código de un solo uso a
+// esa casilla y a ninguna otra; escribir el correo de otra persona no cambia
+// nada, solo le manda un correo a ella. Y esa casilla es la que registró la
+// administración al dar de alta la cuenta, porque no hay registro público.
+//
+// ⚠️ ACÁ NO SE DISTINGUE si el correo está registrado o no, y es a propósito.
+// Si "no existe" devolviera un error, la pantalla de acceso se convertiría en
+// un buscador de clientes: probando correos, cualquiera podría averiguar qué
+// familias usan Inversiones Perez. Ese caso se traga en ESTE único lugar para
+// que ninguna pantalla pueda filtrar el dato sin querer.
 export async function enviarRecuperacionPassword(email: string): Promise<void> {
-  await sendPasswordResetEmail(auth, email.trim());
+  try {
+    await sendPasswordResetEmail(auth, email.trim());
+  } catch (error) {
+    const codigo = (error as { code?: string }).code ?? "";
+    if (codigo === "auth/user-not-found") return;
+    // Lo demás (sin señal, demasiados intentos) sí se avisa: son problemas de
+    // quien está pidiendo, no datos de terceros
+    throw error;
+  }
 }
 
 // --- Actualiza el perfil PROPIO (teléfono y/o foto) ---

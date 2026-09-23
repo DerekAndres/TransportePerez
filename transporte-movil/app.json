@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "transporte-movil",
+    "name": "Transportes Perez",
     "slug": "transporte-movil",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,7 +9,10 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "bundleIdentifier": "com.derekperez.transporteperez",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.derekperez.transporteperez",
@@ -35,6 +38,14 @@
       "expo-image",
       "expo-status-bar",
       "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Se usa para elegir la foto de perfil y la foto del niño, que le sirven al conductor para reconocerlo en la parada.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
       [
         "expo-location",
         {

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Política de privacidad — Transportes Perez</title>
+  <meta name="description" content="Qué datos usa la aplicación de transporte escolar de Inversiones Perez, para qué, quién los ve y cómo pedir que se eliminen." />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <style>
+    /* Política de privacidad. Es un archivo estático en public/, igual que
+       descargar.html: tiene que abrirse sin iniciar sesión porque Google Play y
+       la App Store exigen una URL pública, y sus revisores la abren sin cuenta.
+       Sin JavaScript: la política de seguridad del hosting (firebase.json) no
+       permite scripts dentro del HTML. */
+    :root {
+      --marca: #0A6E67;
+      --marca-oscuro: #08574F;
+      --amarillo: #F0C24E;
+      --texto: #1a1b1e;
+      --texto-suave: #5c5f66;
+      --borde: #dee2e6;
+      --fondo: #f8f9fa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--fondo);
+      color: var(--texto);
+      line-height: 1.65;
+      padding: 24px 16px 48px;
+      display: flex;
+      justify-content: center;
+    }
+    .contenedor { width: 100%; max-width: 680px; }
+
+    header { text-align: center; margin-bottom: 28px; }
+    .logo { width: 88px; height: 88px; border-radius: 20px; margin: 0 auto 12px; display: block; }
+    h1 { font-size: 25px; font-weight: 700; margin-bottom: 6px; }
+    .subtitulo { color: var(--texto-suave); font-size: 15px; }
+
+    .tarjeta {
+      background: #fff;
+      border: 1px solid var(--borde);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--marca-oscuro);
+    }
+    h3 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
+    p { font-size: 15px; margin-bottom: 12px; }
+    p:last-child { margin-bottom: 0; }
+    ul { margin: 0 0 12px 20px; font-size: 15px; }
+    li { margin-bottom: 7px; }
+    strong { font-weight: 600; }
+
+    .destacado {
+      background: #fff9e6;
+      border: 1px solid var(--amarillo);
+      border-radius: 10px;
+      padding: 16px;
+      font-size: 15px;
+      margin-bottom: 20px;
+    }
+    .destacado strong { display: block; margin-bottom: 4px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 12px; }
+    th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--borde); vertical-align: top; }
+    th { color: var(--texto-suave); font-weight: 600; }
+
+    .fecha { color: var(--texto-suave); font-size: 14px; }
+    footer {
+      text-align: center;
+      color: var(--texto-suave);
+      font-size: 13px;
+      padding-top: 8px;
+    }
+    footer a { color: var(--marca); }
+  </style>
+</head>
+<body>
+  <div class="contenedor">
+    <header>
+      <img class="logo" src="/logo.png" alt="Inversiones Perez, transporte escolar" width="88" height="88" />
+      <h1>Política de privacidad</h1>
+      <p class="subtitulo">Aplicación de transporte escolar de Inversiones Perez</p>
+    </header>
+
+    <div class="destacado">
+      <strong>En una frase</strong>
+      Esta aplicación existe para que un padre sepa dónde va el bus de su hijo y
+      cuándo subió y bajó. Se usan solo los datos necesarios para eso, no se
+      venden a nadie, no hay publicidad y no hay rastreadores de terceros.
+    </div>
+
+    <div class="tarjeta">
+      <h2>Quién es responsable de los datos</h2>
+      <p>
+        <strong>Inversiones Perez</strong>, empresa de transporte estudiantil con
+        operaciones en La Ceiba, El Porvenir, El Pino y La Unión (Atlántida,
+        Honduras). Cualquier consulta sobre esta política o sobre tus datos:
+        <strong>transportesperez36@gmail.com</strong>.
+      </p>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Qué datos se usan y para qué</h2>
+      <table>
+        <tr>
+          <th>Dato</th>
+          <th>Para qué</th>
+        </tr>
+        <tr>
+          <td>Nombre, correo y teléfono del padre o del conductor</td>
+          <td>Iniciar sesión, identificar a cada persona dentro del sistema y permitir la llamada directa entre el padre y el conductor de la ruta.</td>
+        </tr>
+        <tr>
+          <td>Foto de perfil (opcional)</td>
+          <td>Que el padre reconozca a quién lleva a su hijo, y el conductor a quién le está entregando el niño.</td>
+        </tr>
+        <tr>
+          <td>Datos del niño: nombre, grado, escuela y foto (opcional)</td>
+          <td>Armar la lista de asistencia de la ruta. La foto le sirve al conductor para confirmar a quién está recogiendo.</td>
+        </tr>
+        <tr>
+          <td>Lugar donde se recoge y se entrega al niño (coordenadas)</td>
+          <td>Dibujar el recorrido del bus y avisarle al padre cuando el bus se acerca a su parada.</td>
+        </tr>
+        <tr>
+          <td>Ubicación del bus <strong>durante el viaje</strong></td>
+          <td>Mostrar el bus en movimiento en el mapa del padre. Se toma del teléfono del conductor, solo mientras hay un viaje en curso.</td>
+        </tr>
+        <tr>
+          <td>Marcas de "subió" y "bajó", con su hora</td>
+          <td>Avisarle al padre y dejar constancia de lo que pasó en el viaje.</td>
+        </tr>
+        <tr>
+          <td>Mensajes del chat</td>
+          <td>Comunicación entre el padre, el conductor y la administración.</td>
+        </tr>
+        <tr>
+          <td>Identificador de notificaciones del teléfono</td>
+          <td>Enviar los avisos aunque la app esté cerrada. No identifica a la persona por sí solo.</td>
+        </tr>
+      </table>
+      <p>
+        La aplicación <strong>no</strong> recoge contactos, ni archivos, ni
+        historial de navegación, ni datos de publicidad, y no usa la ubicación
+        del teléfono del padre: la única ubicación que viaja es la del bus,
+        mientras está en ruta.
+      </p>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Quién puede ver cada cosa</h2>
+      <p>
+        Esta es la parte más importante, y no depende de la buena voluntad de la
+        aplicación: está impuesta por reglas de seguridad que se verifican en el
+        servidor, de modo que un teléfono modificado tampoco puede saltárselas.
+      </p>
+      <ul>
+        <li><strong>El padre</strong> ve únicamente a sus propios hijos, sus registros y la ubicación del bus que los lleva.</li>
+        <li><strong>El conductor</strong> ve únicamente a los niños que transporta ese día, con el lugar donde debe recogerlos y entregarlos.</li>
+        <li><strong>La administración</strong> de Inversiones Perez ve la operación completa, porque es la que la gestiona.</li>
+        <li>Los <strong>mensajes</strong> de una conversación solo los ven sus dos participantes.</li>
+      </ul>
+      <p>
+        La ubicación del bus se comparte solo con los padres de los niños de esa
+        ruta, y solo mientras el viaje está en curso: al finalizarlo, el dato de
+        posición en vivo se elimina.
+      </p>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Dónde se guardan</h2>
+      <p>
+        En <strong>Google Firebase</strong> (Firestore y Authentication), en
+        servidores ubicados en Estados Unidos. Las notificaciones se envían a
+        través del servicio de notificaciones de Expo y, en Android, de Firebase
+        Cloud Messaging. Todo el tráfico entre la aplicación y el servidor viaja
+        cifrado.
+      </p>
+      <p>
+        No se comparten datos con terceros con fines comerciales ni
+        publicitarios, ni se venden. Solo se entregarían a una autoridad
+        competente si la ley lo exigiera.
+      </p>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Cuánto tiempo se conservan</h2>
+      <p>
+        Los datos de una persona se conservan mientras su cuenta esté activa y el
+        servicio de transporte esté vigente. El historial de viajes y de
+        asistencia se conserva como constancia del servicio prestado. La posición
+        en vivo del bus no se acumula: se borra al terminar cada viaje.
+      </p>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Cuentas y datos de los menores</h2>
+      <p>
+        <strong>No hay registro público en la aplicación.</strong> Las cuentas las
+        crea la administración de Inversiones Perez para las familias y los
+        conductores que ya son clientes o empleados de la empresa. La aplicación
+        está dirigida a personas adultas: los niños no tienen cuenta ni la usan.
+      </p>
+      <p>
+        Los datos de cada niño los aporta su padre, madre o tutor al contratar el
+        servicio, y puede pedir en cualquier momento que se corrijan o se
+        eliminen.
+      </p>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Tus derechos, y cómo eliminar tu cuenta</h2>
+      <p>
+        Podés pedir en cualquier momento <strong>acceder</strong> a tus datos,
+        <strong>corregirlos</strong> o <strong>eliminar tu cuenta junto con los
+        datos asociados</strong>.
+      </p>
+      <p>
+        Para hacerlo, escribí a <strong>transportesperez36@gmail.com</strong>
+        desde el mismo correo con el que iniciás sesión, indicando qué querés que
+        se haga. La solicitud se atiende dentro de los 30 días siguientes.
+      </p>
+      <p>
+        Al eliminar una cuenta se borran el perfil, la foto, los mensajes y los
+        datos de los niños asociados. Puede conservarse el historial de viajes ya
+        realizados, sin datos que permitan identificar a la persona, como
+        constancia del servicio prestado.
+      </p>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Permisos que pide la aplicación</h2>
+      <ul>
+        <li><strong>Ubicación (solo el conductor):</strong> para transmitir la posición del bus mientras hay un viaje en curso. Android muestra una notificación fija mientras eso ocurre, para que quede a la vista que se está compartiendo. Al finalizar el viaje deja de transmitir.</li>
+        <li><strong>Notificaciones:</strong> para avisarle al padre cuando su hijo sube o baja del bus, cuando el bus se acerca a la parada y cuando hay un comunicado.</li>
+        <li><strong>Fotos:</strong> solo si elegís cargar una foto de perfil o del niño. La aplicación no accede a tu galería en ningún otro momento.</li>
+      </ul>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Cambios en esta política</h2>
+      <p>
+        Si esta política cambia, se publica la versión nueva en esta misma
+        dirección con su fecha de actualización.
+      </p>
+      <p class="fecha">Última actualización: 12 de septiembre de 2026.</p>
+    </div>
+
+    <footer>
+      Inversiones Perez · La Ceiba, Atlántida<br />
+      <a href="/descargar">Descargar la app</a> · <a href="/">Panel administrativo</a>
+    </footer>
+  </div>
+</body>
+</html>

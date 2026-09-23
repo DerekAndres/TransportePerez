@@ -40,6 +40,8 @@ export default function DatosPruebaScreen() {
   const [conductores, setConductores] = useState<Usuario[] | null>(null);
   const [c1, setC1] = useState<string | null>(null);
   const [c2, setC2] = useState<string | null>(null);
+  const [padres, setPadres] = useState<Usuario[]>([]);
+  const [padreReal, setPadreReal] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [resultado, setResultado] = useState("");
   // Seed de solo gente (sin rutas), para armar rutas a mano
@@ -77,6 +79,11 @@ export default function DatosPruebaScreen() {
         setConductores(cs);
         if (cs[0]) setC1(cs[0].id);
         if (cs[1]) setC2(cs[1].id);
+        // Solo padres con cuenta de verdad: los generados por los seeds usan
+        // correos de example.com y no pueden iniciar sesión
+        setPadres(
+          us.filter((u) => u.rol === "padre" && u.activo && !u.email?.endsWith("example.com"))
+        );
       })
       .catch(() => setConductores([]));
     revisar();
@@ -86,7 +93,7 @@ export default function DatosPruebaScreen() {
     setCargando(true);
     setResultado("");
     try {
-      const r = await cargarDatosDePrueba(c1 ?? "", c2 ?? "");
+      const r = await cargarDatosDePrueba(c1 ?? "", c2 ?? "", padreReal ?? undefined);
       setResultado(r.mensaje);
       if (r.creado) {
         notifications.show({ color: "green", message: "Datos de prueba cargados." });
@@ -211,6 +218,16 @@ export default function DatosPruebaScreen() {
               searchable
             />
           </Group>
+          <Select
+            label="Padre de los niños (opcional)"
+            description="Elegí un padre con cuenta real para que le lleguen los avisos al teléfono. Sin elegir, quedan a nombre de un padre ficticio que no recibe nada."
+            placeholder="Padre ficticio"
+            data={padres.map((p) => ({ value: p.id, label: `${p.nombre} — ${p.email}` }))}
+            value={padreReal}
+            onChange={setPadreReal}
+            searchable
+            clearable
+          />
           <Button
             leftSection={<IconDatabase size={16} />}
             onClick={cargar}

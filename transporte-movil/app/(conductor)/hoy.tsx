@@ -3,8 +3,6 @@ import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
   Avatar,
   Button,
-  Dialog,
-  Portal,
   Text,
   TouchableRipple,
   useTheme,
@@ -20,11 +18,8 @@ import ChipFiltro from '@/components/ChipFiltro';
 import GrupoAsistencia, { type ItemAsistencia } from '@/components/GrupoAsistencia';
 import PantallaBase from '@/components/PantallaBase';
 import PastillaEstado from '@/components/PastillaEstado';
-import Campo from '@/components/Campo';
-import {
-  TIPOS_INCIDENCIA,
-  reportarIncidencia,
-} from '@/services/incidenciasService';
+import HojaNovedad from '@/components/HojaNovedad';
+import { reportarIncidencia } from '@/services/incidenciasService';
 import Metrica, { FilaMetricas } from '@/components/Metrica';
 import Tarjeta from '@/components/Tarjeta';
 import TituloSeccion from '@/components/TituloSeccion';
@@ -1289,85 +1284,26 @@ export default function MiRutaDeHoyScreen() {
       {/* ================================================================
           AVISAR UNA NOVEDAD
           ================================================================
-          Lo que pasa a mitad de viaje y no es una marca de asistencia: se
-          pinchó una rueda, hay un tranque, se largó a llover.
-
-          El conductor está manejando, así que la pantalla pide UN toque: elige
-          el tipo y listo. El campo de texto es opcional y está abajo, no
-          arriba — si fuera obligatorio, nadie avisaría nada.
-
           Se avisa a los padres de los niños que van ARRIBA del bus (no a
           todos: al que todavía no recogieron, "el bus tuvo un problema" lo
           asusta sin motivo) y a la administración, que recibe además quién, en
-          qué unidad y en qué ruta. */}
-      <Portal>
-        <Dialog
-          visible={novedadAbierta}
-          onDismiss={() => setNovedadAbierta(false)}
-          style={{ backgroundColor: tema.colors.elevation.level3 }}
-        >
-          <Dialog.Title>Avisar una novedad</Dialog.Title>
-          <Dialog.Content>
-            <Text variant="bodySmall" style={[estilosBase.tenue, styles.aclaracionNovedad]}>
-              Se les avisa a los padres de los {enBus} {enBus === 1 ? 'niño' : 'niños'} que van a
-              bordo y a la administración.
-            </Text>
+          qué unidad y en qué ruta.
 
-            {TIPOS_INCIDENCIA.map((t) => (
-              <TouchableRipple
-                key={t.tipo}
-                onPress={() => setTipoNovedad(t.tipo)}
-                borderless
-                style={[
-                  styles.opcionNovedad,
-                  {
-                    backgroundColor:
-                      tipoNovedad === t.tipo
-                        ? 'rgba(245, 158, 11, 0.18)'
-                        : 'rgba(255, 255, 255, 0.05)',
-                  },
-                ]}
-              >
-                <View style={styles.filaOpcion}>
-                  <MaterialCommunityIcons
-                    name={t.icono as keyof typeof MaterialCommunityIcons.glyphMap}
-                    size={20}
-                    color={tipoNovedad === t.tipo ? tema.colors.tertiary : tema.colors.onSurfaceVariant}
-                  />
-                  <Text variant="titleSmall" style={styles.textoOpcion}>
-                    {t.etiqueta}
-                  </Text>
-                  {tipoNovedad === t.tipo && (
-                    <MaterialCommunityIcons name="check" size={20} color={tema.colors.tertiary} />
-                  )}
-                </View>
-              </TouchableRipple>
-            ))}
-
-            <Campo
-              label="Detalle (opcional)"
-              value={textoNovedad}
-              onChangeText={setTextoNovedad}
-              multiline
-              numberOfLines={2}
-              style={styles.campoNovedad}
-            />
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setNovedadAbierta(false)} disabled={enviandoNovedad}>
-              Cancelar
-            </Button>
-            <Button
-              mode="contained"
-              onPress={enviarNovedad}
-              loading={enviandoNovedad}
-              disabled={enviandoNovedad || !tipoNovedad}
-            >
-              Avisar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+          La hoja y el porqué de cada decisión de su diseño están en
+          components/HojaNovedad.tsx. El estado y el envío se quedan ACÁ, que es
+          donde están los datos del viaje: qué ruta, qué unidad y quiénes van a
+          bordo en este momento. */}
+      <HojaNovedad
+        visible={novedadAbierta}
+        ninosABordo={enBus}
+        tipo={tipoNovedad}
+        onElegirTipo={setTipoNovedad}
+        texto={textoNovedad}
+        onCambiarTexto={setTextoNovedad}
+        enviando={enviandoNovedad}
+        onCerrar={() => setNovedadAbierta(false)}
+        onEnviar={enviarNovedad}
+      />
     </PantallaBase>
   );
 }
@@ -1391,17 +1327,6 @@ const styles = StyleSheet.create({
   carrilChips: { marginBottom: 2 },
   filaHero: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno + 2 },
   filaUnidad: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  aclaracionNovedad: { marginBottom: ESPACIO.interno },
-  opcionNovedad: { borderRadius: RADIO.control, marginBottom: ESPACIO.minimo },
-  filaOpcion: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: ESPACIO.interno,
-    paddingHorizontal: ESPACIO.interno,
-    minHeight: 48,
-  },
-  textoOpcion: { flex: 1 },
-  campoNovedad: { marginTop: ESPACIO.minimo },
   datosHero: { flex: 1, gap: 2 },
   pastilla: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIO.pastilla },
   barraFondo: {

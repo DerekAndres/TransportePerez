@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
 import { ALTURA, RADIO, VIDRIO, halo } from '@/constants/estilos';
-import { ESPEJO_ZAFIRO } from '@/constants/tema';
+import { AMBAR, ESPEJO_ZAFIRO } from '@/constants/tema';
 
 // ============================================
 // BOTÓN PRINCIPAL — la acción grande de una pantalla
@@ -31,7 +31,7 @@ import { ESPEJO_ZAFIRO } from '@/constants/tema';
 // transparente. Se usa para la acción secundaria que acompaña a la principal,
 // y la diferencia entre las dos tiene que ser obvia de un vistazo.
 
-type Tono = 'principal' | 'peligro' | 'suave';
+type Tono = 'principal' | 'peligro' | 'suave' | 'aviso';
 
 export default function BotonPrincipal({
   texto,
@@ -62,6 +62,10 @@ export default function BotonPrincipal({
   const estilos: Record<Tono, { degradado: readonly [string, string]; texto: string }> = {
     principal: { degradado: ESPEJO_ZAFIRO, texto: '#FFFFFF' },
     peligro: { degradado: ['#E0463C', '#B3231B'], texto: '#FFFFFF' },
+    // 'aviso' es el ámbar de "pide atención" (reportar una novedad del viaje).
+    // El texto va en marrón oscuro y no en blanco: sobre ámbar, el blanco no
+    // llega al contraste mínimo y se lee peor justo con el sol en la pantalla.
+    aviso: { degradado: [AMBAR, '#C2810A'], texto: '#2A1700' },
     suave: {
       degradado: ['rgba(255, 255, 255, 0.10)', 'rgba(255, 255, 255, 0.05)'],
       texto: tema.colors.onSurface,

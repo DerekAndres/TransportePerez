@@ -84,6 +84,153 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 ---
 
+## 0-bis. Ajustes de Authentication en la consola (una sola vez)
+
+Tres cosas que NO están en el código. Se hacen una sola vez, desde el navegador,
+en **console.firebase.google.com** con la cuenta `transportesperez36@gmail.com`
+y el proyecto **transporte-perez** seleccionado arriba a la izquierda.
+
+> Los nombres de los menús de Firebase cambian cada tanto y la consola mezcla
+> español e inglés según el navegador. Abajo van los dos nombres; lo que importa
+> es el efecto, no el rótulo exacto.
+
+### Paso 1 — El nombre público (OPCIONAL, se puede saltar)
+
+> **Si no encontrás este campo, seguí de largo al Paso 2.** Según la versión de
+> la consola, *Configuración del proyecto → General* muestra solo Nombre, ID y
+> Número de proyecto, sin el campo "Nombre público". Google lo movió a la
+> pantalla de consentimiento de OAuth, en Google Cloud (botón **"Ver en Google
+> Cloud"**, arriba a la derecha de esa misma pantalla).
+
+**No hace falta para que el correo salga bien**, porque la plantilla del Paso 3
+no usa la variable `%APP_NAME%`: lleva "Transportes Perez" escrito a mano, y el
+nombre del remitente se configura en el propio editor de la plantilla. Este paso
+solo sirve si algún día se usa `%APP_NAME%` en algún correo.
+
+Si igual lo querés cambiar y lo encontrás, el valor es **Transportes Perez**.
+
+### Paso 2 — Protección contra enumeración de correos
+
+Es el ajuste de seguridad de los tres.
+
+1. Menú de la izquierda → **Autenticación** (*Authentication*).
+2. Pestaña **Ajustes** (*Settings*), arriba.
+3. En la lista de la izquierda, **Acciones del usuario** (*User actions*).
+4. Tiene que estar marcada **Protección contra la enumeración de correos
+   electrónicos** (*Email enumeration protection*).
+
+> ✅ **Verificado el 2026-09-13 en `transporte-pérez`: ya venía activada.**
+> Firebase la enciende por defecto en los proyectos nuevos, así que lo más
+> probable es que no haya nada que hacer. Si el botón de guardar está gris, es
+> que no hay cambios pendientes: el estado que ves es el que está aplicado.
+
+**Qué cambia:** Firebase pasa a responder lo mismo exista o no el correo, así
+nadie puede averiguar qué familias son clientas probando direcciones en el
+login. La app ya hace su parte (el mensaje de "¿olvidaste tu contraseña?" es
+siempre el mismo), pero esto lo garantiza también contra quien le hable directo
+a la API salteándose la app, que es de donde vendría un ataque en serio.
+
+**Efecto secundario que ya está contemplado:** al iniciar sesión, Firebase deja
+de distinguir "ese usuario no existe" de "contraseña incorrecta" y devuelve un
+error único. La app ya mostraba *"Correo o contraseña incorrectos"* en los dos
+casos, así que no hay nada que tocar.
+
+⚠️ **Lo único que conviene volver a probar** después de activarlo: en el panel,
+crear un usuario con un correo que YA existe. Tiene que seguir diciendo
+**"Ya existe una cuenta con ese correo."** Si en cambio dice *"No se pudo
+guardar el registro"*, avisame: significa que Firebase cambió el código de ese
+error y hay que ajustar una línea en `GestionUsuariosScreen.tsx`.
+
+### Paso 3 — El correo que reciben los padres, en español
+
+Hoy llega en inglés. Es el PRIMER contacto de una familia con el sistema.
+
+1. **Authentication** → pestaña **Templates** (*Plantillas*).
+2. Elegí **Restablecimiento de contraseña** (*Password reset*).
+3. Arriba a la derecha del cuadro hay un selector de **idioma de la plantilla**
+   (un ícono de globo o una lista desplegable): elegí **Español**. Con eso solo,
+   ya llega traducido por Google.
+4. Tocá el **lápiz ✏️** para editarla y dejá:
+   - **Nombre del remitente** (*Sender name*): `Inversiones Perez`
+   - **Asunto**: `Definí tu contraseña de Transportes Perez`
+   - **Mensaje**: el editor trabaja con HTML. Este es el texto que se pegó
+     (el `%LINK%` es obligatorio: es el enlace de un solo uso):
+
+   ```html
+   <p>Hola:</p>
+   <p>Recibís este correo porque Inversiones Perez creó tu cuenta de <strong>Transportes Perez</strong> con la dirección %EMAIL%, o porque pediste cambiar tu contraseña.</p>
+   <p>Para definir tu contraseña, entrá acá:</p>
+   <p><a href='%LINK%'>%LINK%</a></p>
+   <p>Si no pediste nada, podés ignorar este mensaje: tu contraseña no cambia hasta que abras ese enlace.</p>
+   <p>Gracias,</p>
+   <p>Inversiones Perez — Transporte escolar<br />La Ceiba, Atlántida</p>
+   ```
+
+   Sirve para los DOS casos con el mismo texto, que es lo que obliga Firebase:
+   el alta de una cuenta nueva (el padre define su contraseña por primera vez) y
+   el "olvidé mi contraseña" de siempre.
+5. Guardá.
+
+⚠️ **No uses `%DISPLAY_NAME%`** en la plantilla: el panel crea las cuentas sin
+cargar el nombre en Firebase Authentication (el nombre vive en Firestore), así
+que ese campo llegaría **vacío** y el correo empezaría con "Hola ,". Por eso el
+texto de arriba saluda sin nombre.
+
+> La dirección del remitente (`noreply@transporte-perez.firebaseapp.com`) no se
+> puede cambiar sin configurar un servidor de correo propio. El **nombre** del
+> remitente sí, y es lo que la gente ve primero en la bandeja.
+
+### Paso 4 — ⚠️ Lo que NO hay que tocar
+
+En esa misma pantalla de **Authentication → Settings → User actions** hay una
+casilla **"Enable create (sign-up)"** (*Habilitar la creación de cuentas*).
+
+**Dejala encendida.** Apagarla suena bien —registro cerrado— pero **rompe el
+panel**: el admin crea las cuentas desde el navegador con el SDK cliente
+(`crearUsuario` en `usuariosService.ts`, con la segunda instancia de Firebase),
+que usa exactamente esa API. Si se apaga, el admin no puede dar de alta a nadie.
+
+Que quede esa puerta abierta no da acceso a nada: quien se cree una cuenta por
+su cuenta queda autenticado pero **sin perfil en `usuarios`**, y las reglas de
+Firestore piden un perfil con rol para leer o escribir cualquier cosa. La app,
+además, le cierra la sesión y le explica que su correo no está habilitado (ver
+`context/AuthContext.tsx`). Cerrar esa puerta de verdad exige el Admin SDK, o
+sea Cloud Functions y plan Blaze, que este proyecto no usa.
+
+### Paso 5 — Opcional: exigir contraseñas decentes
+
+En esa misma pantalla (**Autenticación → Ajustes**) hay una sección **Política
+de contraseñas**. Sirve para que un padre no pueda poner "123456" cuando define
+la suya desde el enlace del correo. Hoy no hay ningún mínimo.
+
+⚠️ **ANTES DE ACTIVARLA, LEER ESTO.** La política se aplica también cuando el
+panel CREA una cuenta, y el panel usa como contraseña temporal un
+`crypto.randomUUID()` — que son solo **minúsculas, números y guiones**. Entonces:
+
+- Exigir **largo mínimo** (8 o más), **minúsculas** y **números**: seguro, el
+  UUID los cumple.
+- Exigir **mayúsculas** o **caracteres especiales**: **rompe el alta de
+  usuarios** del panel. Antes de activar eso hay que cambiar el generador de la
+  contraseña temporal en `crearUsuario` (`usuariosService.ts`) por uno que
+  incluya los cuatro tipos de carácter.
+
+Si se activa, probá enseguida crear un usuario desde el panel: si falla, es
+esto.
+
+### Cómo confirmar que quedó bien
+
+- [ ] En la app, "¿Olvidaste tu contraseña?" con un correo **registrado** →
+      mensaje de "si ese correo está registrado…", y el correo llega.
+- [ ] Lo mismo con un correo **inventado** → **exactamente el mismo mensaje**, y
+      no llega nada.
+- [ ] El correo que llegó está **en español** y el remitente dice
+      **Inversiones Perez**.
+- [ ] En el panel, crear un usuario con un correo repetido → sigue diciendo
+      "Ya existe una cuenta con ese correo."
+- [ ] En el panel, crear un usuario nuevo → se crea y le llega su correo.
+
+---
+
 ## 1. Desplegar las reglas de Firestore
 
 Las reglas están en `firestore.rules`. **Leé primero la sección de arriba**: desde
@@ -217,8 +364,10 @@ firebase deploy --only hosting
 > APK de Expo pesa ~70-100 MB, o sea que se agotaría con 4 descargas diarias.
 > Sirviéndolo desde Expo, el ancho de banda no consume tu cuota.
 >
-> Ojo: en el plan gratuito EAS conserva los artefactos de compilación **30 días**.
-> Si el piloto se extiende más, recompilá y actualizá el enlace.
+> Ojo: en el plan gratuito el enlace del APK **vence a los 14 días** (verificado
+> con `eas build:list`: el APK del 2026-09-08 vence el 2026-09-22). Guardá
+> además una copia del `.apk` en tu computadora, y si el piloto o la defensa
+> caen después del vencimiento, recompilá y actualizá el enlace.
 
 ---
 

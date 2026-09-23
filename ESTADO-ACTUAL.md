@@ -1727,6 +1727,154 @@ desapareció también un aviso que ya venía de antes en la pantalla del padre.
 **Falta probarlo en el teléfono**: sobre todo la bandeja del conductor con
 muchos padres y que el aviso nuevo del conductor aparezca en su barra.
 
+### 3-novemvicies. La hoja de "avisar una novedad" (2026-09-12) — compila limpio, NO probada en dispositivo
+
+Pedido de Derek: mejorar el pop up con el que el conductor avisa una novedad
+(rueda pinchada, tranque, lluvia), con el mismo lenguaje que la ficha del
+conductor. Era el `Dialog` genérico de Paper: un cuadro centrado, cinco
+renglones de 48 px casi idénticos entre sí y los botones de texto de Paper.
+
+**Primero, lo que se hizo para NO duplicar:** el marco de la hoja —velo de
+fondo, entrada animada, asa y gesto de arrastrar para cerrar— estaba escrito
+dentro de `FichaConductor.tsx`. Al aparecer la segunda hoja se extrajo a
+**`components/HojaInferior.tsx`** y las dos lo usan. Duplicar la mecánica de un
+gesto es el mismo error que tenían las bandejas de mensajes (§3-octovicies).
+
+> ⚠️ Eso implica que **se tocó `FichaConductor.tsx`, que ya estaba aprobado**.
+> El contenido no cambió; sí cambia un detalle: antes la ficha se podía
+> arrastrar agarrándola de la foto del bus, y ahora solo del asa de arriba (es
+> lo que evita que un arrastre compita con una lista o con un campo de texto).
+> Si molesta, se revierte volviendo a la versión anterior del archivo.
+
+**La hoja nueva (`components/HojaNovedad.tsx`):**
+
+- **Sube desde abajo**, porque el conductor está manejando y el pulgar llega
+  ahí sin cambiar la mano de posición.
+- **Cinco opciones de 64 px** con su ícono en un cuadro de color: se tocan sin
+  apuntar. La elegida se pinta en **ámbar** con el borde encendido —el color de
+  "pide atención" en toda la app—, no con un tilde chiquito.
+- **Se muestra LO QUE VAN A LEER LOS PADRES.** Es lo más importante que se
+  agregó: el conductor elige "Problema con la unidad" y ve, textual, el mensaje
+  que les va a llegar ("Los niños están bien; la ruta va a demorarse"). Sin eso
+  está mandando a ciegas un aviso a decenas de familias, y el miedo a asustar a
+  alguien es justamente la razón por la que un conductor no reporta nada. Solo
+  aparece si hay niños a bordo: si no le llega a ningún padre, mostrar "lo que
+  van a leer" sería mentir sobre lo que hace el botón.
+- **Se arregló un texto que quedaba mal:** con el bus vacío decía "se les avisa
+  a los padres de los 0 niños que van a bordo". Ahora dice la verdad — "ahora no
+  hay niños a bordo: le llega solo a la administración".
+- **El detalle sigue siendo opcional y al final**: si fuera obligatorio, nadie
+  avisaría nada. La hoja se levanta lo que mida el teclado para que el campo no
+  quede tapado.
+
+`BotonPrincipal` ganó el tono **`aviso`** (ámbar). Su texto va en marrón oscuro
+y no en blanco: sobre ámbar, el blanco no llega al contraste mínimo y se lee
+peor justo con el sol en la pantalla, que es cuando se usa.
+
+El estado (qué tipo eligió, qué escribió) y el envío se quedaron en
+`app/(conductor)/hoy.tsx`: ahí están los datos del viaje y el cálculo de quiénes
+van a bordo **en el momento de enviar**, que no cambió.
+
+Verificado: `tsc` limpio y `eslint` **0 errores con 71 avisos, exactamente los
+mismos de antes**. **Falta probarlo en el teléfono**: el arrastre para cerrar y
+que el teclado no tape el campo de detalle.
+
+### 3-tricies. Recuperación de contraseña: se cerró la fuga de "quién es cliente" (2026-09-13)
+
+Derek preguntó si cualquiera podía cambiar una contraseña ajena. La respuesta
+corta es **no**, pero revisándolo apareció algo peor que sí había que arreglar.
+
+**Lo que ya estaba bien:** `sendPasswordResetEmail` manda un enlace de un solo
+uso **al buzón de ese correo y a ninguno otro**. Escribir el correo de otra
+persona no cambia nada: solo le manda un correo a ella. Y ese buzón es el que la
+administración registró al dar de alta la cuenta, porque no hay registro
+público. O sea que el control de acceso es "quién abre ese correo", y eso ya
+estaba resuelto.
+
+**Lo que estaba MAL, y es el arreglo de verdad — enumeración de usuarios.**
+La pantalla de acceso respondía distinto según el caso: con un correo registrado
+decía *"Te enviamos un correo a X"*, y con uno que no existía, *"Verificá que
+esté bien escrito"*. Eso convertía el login en un buscador de clientes:
+probando direcciones, cualquiera podía averiguar qué familias usan Inversiones
+Perez. En un sistema sobre niños, ese dato no puede filtrarse.
+
+Ahora la respuesta es **siempre la misma**: *"Si ese correo está registrado por
+Inversiones Perez, te va a llegar un enlace…"*. El caso `auth/user-not-found` se
+traga en `services/authService.ts`, en UN solo lugar, para que ninguna pantalla
+pueda filtrarlo por descuido. El formato del correo sí se valida (avisar de un
+correo mal escrito no delata a nadie).
+
+**Lo demás que se agregó:**
+
+- **Espera de 60 s entre envíos.** Sin eso, cualquiera podía llenarle la bandeja
+  de entrada a un padre tocando el enlace muchas veces.
+- **Autenticado pero sin perfil.** La clave del proyecto es pública (va dentro
+  de la app: es así por diseño en Firebase), así que alguien podría crearse una
+  cuenta llamando directo a la API. No puede ver NADA —las reglas exigen un
+  perfil con rol— pero antes quedaba en un login que no fallaba ni explicaba
+  nada. Ahora se le cierra la sesión y se le dice que su correo no está
+  habilitado. Arreglado en las dos apps (`context/AuthContext.tsx`).
+- **Ya no se confunde "sin señal" con "no está registrado".** Antes el perfil se
+  leía con `.catch(() => null)`: una caída de red se veía igual que una cuenta
+  inexistente. Ahora se distinguen, porque una cierra la sesión y la otra no.
+
+**Lo que NO se puede hacer sin cambiar de plan**, y queda documentado como
+riesgo aceptado: deshabilitar de verdad una cuenta en Firebase Authentication
+(una cuenta dada de baja conserva su contraseña; lo que la frena son las reglas
+y el cierre de sesión de la app) y cerrar el alta pública de cuentas sin romper
+el panel, que crea usuarios con el SDK cliente. Las dos cosas exigen el Admin
+SDK, o sea Cloud Functions y plan Blaze.
+
+**Tres ajustes de consola quedaron documentados** en `docs/despliegue.md` §0-bis:
+encender la *protección contra enumeración de correos*, traducir al español las
+plantillas de correo (hoy llegan en inglés y firmadas por
+`project-XXXX.firebaseapp.com`, que a un padre le parece phishing) y **no**
+apagar la creación de cuentas.
+
+**Hueco conocido que queda:** el panel web no tiene "¿olvidaste tu contraseña?",
+así que un admin que pierda la suya depende de que otro admin se la reenvíe
+desde Usuarios.
+
+Verificado: `tsc` limpio y `eslint` 0 errores con 71 avisos en el móvil (los
+mismos de antes). **Falta probarlo en el teléfono**: pedir el correo con una
+dirección registrada y con una inventada, y ver que la pantalla diga lo mismo.
+
+### 3-untricies. Logo nuevo (2026-09-17)
+
+Derek reemplazó el set de `Logos/` (IconKitchen). El logo pasó de la ilustración
+con el texto "Rutas Escolar / Seguridad" sobre cielo azul a una **buseta blanca
+con una franja azul, sin texto**, sobre una tarjeta blanca redondeada. Sin
+texto se lee mejor en 48 px, que es el tamaño real del ícono en el teléfono.
+
+Reemplazar la carpeta NO cambia la app: los archivos que usan la app y el panel
+son otros. Se regeneraron los 13 con un script de una sola vez (`jimp-compact`,
+que ya viene con `@expo/image-utils` — **sin librerías nuevas**), como en agosto.
+
+- ⚠️ **El arte viene sobre NEGRO**: es una tarjeta blanca redondeada con las
+  esquinas negras. Copiado tal cual, esas esquinas asoman por fuera de la
+  máscara del ícono de Android y quedan como un marco oscuro en iOS. El script
+  las quita con un relleno que entra **desde las cuatro esquinas** y avanza solo
+  por píxeles oscuros conectados a ellas: así los negros del dibujo (llantas,
+  contornos, ventanas) no se tocan, porque están rodeados de blanco. El borde
+  queda suavizado (la transparencia sale de cuánta luz tenía el píxel), no
+  cortado en seco.
+- ⚠️ **La capa monocroma del paquete es la de color.** Android la pinta de UN
+  solo color usando la transparencia como molde, así que tal cual habría quedado
+  un cuadro macizo sin bus. Se genera acá: cada píxel queda blanco y tan opaco
+  como oscuro era, o sea que el fondo blanco de la tarjeta desaparece y quedan
+  los contornos — el bus dibujado a línea.
+- **El fondo del ícono adaptativo sigue oscuro** (`#0F131D`). Se compararon las
+  dos opciones renderizadas: con fondo blanco la tarjeta pierde el borde sobre
+  un fondo de pantalla claro; con el oscuro se enmarca y además es el color del
+  tema de la app.
+- `icon.png` va aplanado sobre blanco (la App Store rechaza el canal alfa);
+  `splash-icon.png` y `logo.png` van con las esquinas transparentes, porque se
+  dibujan sobre el fondo oscuro de la app.
+
+⚠️ **El APK del 2026-09-17 se compiló ANTES de esto: todavía tiene el logo
+viejo.** Para verlo en el teléfono hay que recompilar, y para verlo en el panel
+hay que volver a publicar el hosting.
+
 ## 4. Modelo de datos (colecciones y tipos clave)
 
 Colecciones: `usuarios, buses, escuelas, puntos, ninos, rutas, viajes, registros, ubicaciones, mensajes, canales, avisos, solicitudes, incidencias`.
@@ -1778,6 +1926,11 @@ interface Registro {
 > automáticas en `pruebas-reglas/`. Lo que sigue en esta sección describe la
 > versión 1 y queda como historia. Publicar la v2 exige el orden de
 > `docs/despliegue.md`.
+>
+> ✅ **PUBLICADO EL 2026-09-17:** reglas v2 + panel web (`firebase deploy --only
+> firestore:rules,hosting`, con 76/76 pruebas antes de publicar) y APK nuevo
+> (EAS build `ff88f8fa…`, enlace en `descargar.js`, **vence el 2026-10-01**).
+> El aviso de abajo ya no aplica; queda como historia.
 >
 > ⚠️ **LO QUE ESTÁ PUBLICADO HOY NO CONOCE LAS COLECCIONES NUEVAS (2026-09-12):**
 > `suplencias`, `auditoria`, `sistema`, `recorridos` e `incidencias` no tienen
@@ -1844,6 +1997,11 @@ recibe en el punto y lo lleva a su escuela. (Juan y María son hermanos, misma c
 0. **SALIR A PRODUCCIÓN, en este orden** (2026-09-12; el detalle con comandos
    está en `docs/despliegue.md`). Se confirmó que el sistema **todavía no está
    en uso real**, así que no hay que proteger a nadie ni hacer etapas:
+   > **2026-09-17: hechos (c) y (d)** — APK compilado y reglas v2 + panel
+   > publicados. Antes se alinearon 6 parches de Expo (`expo install --fix`,
+   > expo-doctor 21/21). Falta (a), (b) sin confirmar, y de (e) en adelante.
+   > Guion de capturas para la presentación: `docs/evidencias-presentacion.md`.
+
    (a) commitear (hay ~167 archivos sin commitear desde el 21/08);
    (b) subir a EAS la clave de **FCM V1** — sin eso el push nunca llega, y es
    requisito obligatorio del informe;

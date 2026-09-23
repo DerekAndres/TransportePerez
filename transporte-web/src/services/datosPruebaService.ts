@@ -79,7 +79,19 @@ function conAuditoria(lote: WriteBatch, coleccion: string, docIds: string[], dat
   return { ...datos, auditoriaId };
 }
 
-export async function cargarDatosDePrueba(conductor1: string, conductor2: string): Promise<ResumenSeed> {
+// Los cinco niños que crea el seed con rutas. Se usan para reconocerlos al
+// borrar cuando quedaron a nombre de un padre REAL (ver `padreRealId`).
+const NINOS_DEL_SEED = new Set(["Juan Pérez", "María Pérez", "Pedro López", "Ana Gómez", "Luis Cruz"]);
+
+// `padreRealId` (opcional): deja a los niños a nombre de un padre con cuenta de
+// verdad. Sin eso quedan con un padre ficticio que no puede iniciar sesión, y
+// entonces ningún aviso push le llega a ningún teléfono — o sea que no se puede
+// probar (ni mostrar) el circuito completo de notificaciones.
+export async function cargarDatosDePrueba(
+  conductor1: string,
+  conductor2: string,
+  padreRealId?: string
+): Promise<ResumenSeed> {
   if (!conductor1 || !conductor2 || conductor1 === conductor2) {
     return {
       creado: false,
@@ -160,15 +172,18 @@ export async function cargarDatosDePrueba(conductor1: string, conductor2: string
     activo: true,
   });
 
-  // Padre de prueba (doc de usuario; NO puede iniciar sesión — es solo referencia)
-  const padre = await reusarOCrear("usuarios", "email", EMAIL_PADRE_PRUEBA, {
-    rol: "padre",
-    nombre: "Familia de prueba (prueba)",
-    telefono: "0000-0000",
-    email: EMAIL_PADRE_PRUEBA,
-    activo: true,
-    creadoEn: Timestamp.now(),
-  });
+  // Padre: el real si se eligió; si no, uno ficticio (doc de usuario que NO
+  // puede iniciar sesión — es solo referencia)
+  const padre =
+    padreRealId ||
+    (await reusarOCrear("usuarios", "email", EMAIL_PADRE_PRUEBA, {
+      rol: "padre",
+      nombre: "Familia de prueba (prueba)",
+      telefono: "0000-0000",
+      email: EMAIL_PADRE_PRUEBA,
+      activo: true,
+      creadoEn: Timestamp.now(),
+    }));
 
   // Turno según la hora actual, para que el conductor vea las rutas cuando pruebe
   // (antes del mediodía = mañana). Los niños quedan "ambos" para no depender de eso.
@@ -234,7 +249,10 @@ export async function cargarDatosDePrueba(conductor1: string, conductor2: string
   return {
     creado: true,
     mensaje:
-      "Listo. Pedro López hace transbordo en Plaza Cabotaje: lo lleva el bus PRU-001 hasta el punto y lo sigue el PRU-002 hasta su escuela. (Rutas cargadas en el turno actual.)",
+      "Listo. Pedro López hace transbordo en Plaza Cabotaje: lo lleva el bus PRU-001 hasta el punto y lo sigue el PRU-002 hasta su escuela. (Rutas cargadas en el turno actual.)" +
+      (padreRealId
+        ? " Los cinco niños quedaron a nombre del padre que elegiste: le van a llegar los avisos."
+        : ""),
   };
 }
 
@@ -524,14 +542,24 @@ async function buscarDatosDePrueba(): Promise<Hallazgo> {
   // Authentication, así que borrar el documento los elimina por completo.
   const padresPrueba = usuarios.filter((u) => esPadreDePrueba(u.email));
 
-  const idsPadres = new Set(padresPrueba.map((p) => p.id));
-  const ninosPrueba = ninos.filter((n) => idsPadres.has(n.padreId));
-  const idsNinos = new Set(ninosPrueba.map((n) => n.id));
-
   const idsBuses = new Set(busesPrueba.map((b) => b.id));
   // Por nombre o por bus: si a la ruta le cambiaron el nombre, el bus la delata
   const rutasPrueba = rutas.filter((r) => r.nombre?.includes(MARCA) || idsBuses.has(r.busId));
   const idsRutas = new Set(rutasPrueba.map((r) => r.id));
+
+  // Niños de prueba: los de un padre ficticio, y además los del seed que se
+  // cargaron a nombre de un padre REAL. A esos no los delata el padre, así que se
+  // exigen las DOS cosas — estar en una ruta de prueba y llamarse como un niño del
+  // seed — para no borrar nunca a un niño real que alguien haya sumado a esa ruta.
+  const idsEnRutasPrueba = new Set(
+    rutasPrueba.flatMap((r) => [...(r.ninoIds ?? []), ...(r.ninos ?? []).map((n) => n.ninoId)])
+  );
+  const idsPadres = new Set(padresPrueba.map((p) => p.id));
+  const ninosPrueba = ninos.filter(
+    (n) =>
+      idsPadres.has(n.padreId) || (idsEnRutasPrueba.has(n.id) && NINOS_DEL_SEED.has(n.nombre))
+  );
+  const idsNinos = new Set(ninosPrueba.map((n) => n.id));
 
   // Rutas REALES que quedaron con algún niño de prueba adentro (puede pasar si
   // se probó el armador con ellos). No se borran: se les quita el niño.

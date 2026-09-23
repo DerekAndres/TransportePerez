@@ -74,6 +74,18 @@ import { OBSIDIANA, ZAFIRO } from '@/constants/tema';
 const BLANCO = '#FFFFFF';
 const BLANCO_TENUE = 'rgba(255, 255, 255, 0.82)';
 
+// La ÚNICA respuesta de "¿olvidaste tu contraseña?", exista o no el correo.
+// Está redactada para que el que sí es usuario entienda qué hacer, y el que no
+// lo es no aprenda nada (ver el comentario largo en `olvidePassword`).
+const AVISO_CORREO_ENVIADO =
+  'Si ese correo está registrado por Inversiones Perez, te va a llegar un enlace para definir tu contraseña. Revisá también la carpeta de spam.';
+
+// Cuánto hay que esperar entre un correo y el siguiente
+const ESPERA_ENTRE_ENVIOS_MS = 60 * 1000;
+
+// Formato mínimo de un correo: algo@algo.algo
+const FORMATO_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 // Cuánto de la pantalla se lleva la portada. Va como PROPORCIÓN y no como un
 // número de píxeles: con una altura fija, la portada se come media pantalla en
 // un teléfono chico y apenas un tercio en uno grande.
@@ -109,6 +121,9 @@ export default function LoginScreen() {
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [verPassword, setVerPassword] = useState(false);
+  // Cuándo se mandó el último correo de recuperación. Va en una ref y no en
+  // estado porque solo se lee al tocar el enlace: no hay nada que redibujar.
+  const ultimoEnvio = useRef(0);
 
   const tecladoAbierto = altoTeclado > 0;
   const altoPortada =
@@ -173,20 +188,51 @@ export default function LoginScreen() {
     }
   };
 
-  // Recuperar contraseña: Firebase manda el correo de restablecimiento al
-  // correo escrito arriba (el mismo flujo con el que se entregan las cuentas)
+  // ============================================
+  // RECUPERAR LA CONTRASEÑA
+  // ============================================
+  // Quien cambia la contraseña es SIEMPRE el dueño del buzón: Firebase manda un
+  // enlace de un solo uso a ese correo y a ningún otro. Escribir el correo de
+  // otra persona no cambia nada — solo le manda un correo a ella. Y ese correo
+  // es el que registró la administración, porque no hay registro público.
+  //
+  // ⚠️ LA RESPUESTA ES SIEMPRE LA MISMA, exista o no el correo. Antes decía
+  // "te enviamos un correo a X" cuando existía y "verificá que esté bien
+  // escrito" cuando no: eso convertía la pantalla de acceso en un buscador de
+  // clientes — probando correos, cualquiera podía averiguar qué familias usan
+  // Inversiones Perez. Con un solo mensaje para los dos casos, el que pregunta
+  // no aprende nada que no supiera.
+  //
+  // Y hay una espera entre un envío y el siguiente: sin eso, cualquiera puede
+  // llenarle la bandeja de entrada a un padre tocando el enlace muchas veces.
   const olvidePassword = async () => {
     setError('');
     setAviso('');
-    if (!email.trim()) {
-      setError('Escribí tu correo arriba y volvé a tocar el enlace.');
+    const correo = email.trim();
+
+    // El formato sí se revisa: avisar de un correo mal escrito no delata a
+    // nadie (no depende de si está registrado) y evita esperar un correo que
+    // nunca iba a salir
+    if (!FORMATO_EMAIL.test(correo)) {
+      setError('Escribí tu correo completo arriba y volvé a tocar el enlace.');
       return;
     }
+
+    if (Date.now() - ultimoEnvio.current < ESPERA_ENTRE_ENVIOS_MS) {
+      setAviso(AVISO_CORREO_ENVIADO);
+      return;
+    }
+    ultimoEnvio.current = Date.now();
+
+    setEnviando(true);
     try {
-      await enviarRecuperacionPassword(email);
-      setAviso(`Te enviamos un correo a ${email.trim()} para definir tu contraseña.`);
+      await enviarRecuperacionPassword(correo);
+      setAviso(AVISO_CORREO_ENVIADO);
     } catch {
-      setError('No se pudo enviar el correo. Verificá que esté bien escrito.');
+      // Un fallo real (sin señal, demasiados intentos): no dice nada del correo
+      setError('No se pudo enviar. Revisá tu conexión e intentá de nuevo.');
+    } finally {
+      setEnviando(false);
     }
   };
 
