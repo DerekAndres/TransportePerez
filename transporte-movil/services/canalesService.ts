@@ -2,6 +2,8 @@ import {
   Timestamp,
   addDoc,
   collection,
+  deleteDoc,
+  doc,
   getDocs,
   onSnapshot,
   query,
@@ -119,6 +121,20 @@ export async function listarCanales(): Promise<Canal[]> {
 // --- Publicar un aviso ---
 // `de` tiene que ser el uid del admin: la regla de Firestore exige que coincida
 // con quien está autenticado (avisos: create if esAdmin() && de == request.auth.uid).
+// --- Borra un aviso publicado (solo el admin; lo exigen las reglas) ---
+//
+// Acá el borrado SÍ es físico, a diferencia del resto del sistema (usuarios,
+// buses, rutas y niños usan un switch `activo` para conservar el historial). Un
+// aviso no es un dato que se consulte después: es un mensaje que se está
+// mostrando AHORA en el teléfono de decenas de familias. Si se publicó algo
+// equivocado, archivarlo no sirve de nada y seguiría ocupando la pantalla.
+//
+// ⚠️ Lo que no se puede deshacer es la notificación ya enviada: ese push llegó
+// al teléfono y no hay forma de retirarlo. La pantalla lo advierte.
+export async function borrarAviso(avisoId: string): Promise<void> {
+  await deleteDoc(doc(db, "avisos", avisoId));
+}
+
 export async function publicarAviso(
   canalId: string,
   texto: string,

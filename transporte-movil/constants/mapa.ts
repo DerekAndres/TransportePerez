@@ -102,6 +102,28 @@ export const COLORES_MAPA = {
 } as const;
 
 /**
+ * La silueta del bus que va DENTRO de la cápsula del marcador, en lugar del
+ * punto de color que llevan los demás.
+ *
+ * Por qué un dibujo y no un emoji 🚌: el emoji lo dibuja el sistema operativo,
+ * así que cambia de forma y de color en cada teléfono y no se puede pintar de
+ * blanco. Acá el bus tiene que ser blanco sobre el zafiro de la cápsula.
+ *
+ * Se arma con rectángulos y círculos, no con un trazo complicado: a los 15 px
+ * reales que mide en pantalla, el detalle no se ve y solo pesa. Las ventanas se
+ * pintan del color de fondo de la cápsula para que se lean como recortes.
+ *
+ * Es markup FIJO nuestro (no entra texto de nadie), por eso puede insertarse
+ * con innerHTML sin riesgo de inyección.
+ */
+export const SVG_BUS = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <rect x="3.5" y="2.5" width="17" height="14" rx="3.2" fill="#FFFFFF"/>
+  <rect x="6" y="5.5" width="12" height="4.6" rx="1.2" fill="${COLORES_MAPA.zafiro}"/>
+  <circle cx="8" cy="18.2" r="2.1" fill="#FFFFFF"/>
+  <circle cx="16" cy="18.2" r="2.1" fill="#FFFFFF"/>
+</svg>`;
+
+/**
  * CSS común a los tres mapas: la entrada animada, las cápsulas de los
  * marcadores y el aspecto de los controles de Leaflet.
  * Se pega dentro del `<style>` de cada mapa.
@@ -196,7 +218,14 @@ export const CSS_MAPA = `
          de saltar. Con actualizaciones cada ~15 s, sin esto el bus teletransporta */
       transition: transform .9s linear;
     }
-    .pastilla-bus .punto { background: #FFFFFF; box-shadow: 0 0 8px #FFFFFF; }
+    /* El bus no lleva punto sino su silueta (SVG_BUS). Es un poco más grande
+       que el punto de las otras cápsulas a propósito: es el marcador que el
+       padre busca con la mirada apenas abre la pantalla. */
+    .pastilla-bus .icono-bus {
+      width: 15px; height: 15px; flex: none; display: block;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .45));
+    }
+    .pastilla-bus .icono-bus svg { width: 100%; height: 100%; display: block; }
 
     /* El latido alrededor del bus: se ve de un vistazo que la posición está
        viva y no es la última conocida */

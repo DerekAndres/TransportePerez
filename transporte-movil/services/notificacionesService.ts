@@ -119,6 +119,51 @@ export async function registrarTokenPush(uid: string): Promise<EstadoPush> {
   }
 }
 
+// --- Estado actual, SIN pedir nada ---
+// Sirve para mostrar en Configuración si los avisos están activos. No puede
+// usar `registrarTokenPush` directamente: esa función ABRE el diálogo del
+// sistema si falta el permiso, y una pantalla de ajustes que te interrumpe con
+// un permiso apenas la abrís es exactamente lo que no hay que hacer. Si el
+// permiso ya está dado, sí la llama — ahí no pregunta nada y de paso reescribe
+// el token si por alguna razón no estaba guardado.
+export async function consultarEstadoPush(uid: string): Promise<EstadoPush> {
+  if (!Device.isDevice) return "sin_dispositivo";
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== "granted") return "sin_permiso";
+    return await registrarTokenPush(uid);
+  } catch {
+    return "error";
+  }
+}
+
+// --- Activar los avisos (lo que hace el botón de Configuración) ---
+//
+// Devuelve además si hay que mandar al usuario a los ajustes del sistema.
+// El motivo: Android e iOS recuerdan un "no" definitivo. Una vez que la persona
+// rechazó el permiso, `requestPermissionsAsync` deja de mostrar el diálogo y
+// devuelve "denegado" al instante — el botón parecería roto ("le doy y no pasa
+// nada"). En ese caso la ÚNICA salida es la pantalla de ajustes de la app, y
+// hay que llevarla ahí en vez de dejarla tocando un botón que ya no puede
+// funcionar.
+export async function activarNotificaciones(
+  uid: string
+): Promise<{ estado: EstadoPush; abrirAjustes: boolean }> {
+  if (!Device.isDevice) return { estado: "sin_dispositivo", abrirAjustes: false };
+  try {
+    const permiso = await Notifications.getPermissionsAsync();
+    if (permiso.status !== "granted" && !permiso.canAskAgain) {
+      return { estado: "sin_permiso", abrirAjustes: true };
+    }
+    const estado = await registrarTokenPush(uid);
+    // Si después de pedirlo sigue sin permiso, fue un "no" ahora mismo: se le
+    // ofrece la vía de los ajustes igual.
+    return { estado, abrirAjustes: estado === "sin_permiso" };
+  } catch {
+    return { estado: "error", abrirAjustes: false };
+  }
+}
+
 // ============================================
 // Envío de avisos al padre (desde la app del conductor)
 // ============================================
@@ -395,7 +440,7 @@ function horaActual(): string {
 export async function notificarEventoAlPadre(
   ninoId: string,
   evento: EventoRegistro,
-  opciones?: { enPunto?: boolean; turno?: Turno }
+  opciones?: { enPunto?: boolean; turno?: Turno; puntoNombre?: string; unidad?: string }
 ): Promise<void> {
   const nino = await obtenerNino(ninoId);
   if (!nino) return;
@@ -411,8 +456,20 @@ export async function notificarEventoAlPadre(
   let titulo: string;
   let cuerpo: string;
   if (opciones?.enPunto) {
-    titulo = `${nino.nombre} sigue en camino`;
-    cuerpo = `Va rumbo a ${destino}.`;
+    // EN EL PUNTO DE TRANSBORDO. Antes los dos extremos del cambio de bus se
+    // resolvían con un único aviso neutro ("sigue en camino"), porque el
+    // transbordo se había definido como invisible para el padre. La empresa
+    // pidió lo contrario (2026-09-24): el padre tiene que saber en qué momento
+    // su hijo quedó fuera de un bus y en qué momento entró al otro, que son
+    // justamente los dos minutos en los que el niño no va arriba de ninguno.
+    const lugar = opciones.puntoNombre ? ` en ${opciones.puntoNombre}` : "";
+    if (evento === "subio") {
+      titulo = `${nino.nombre} subió a la otra unidad`;
+      cuerpo = `Subió a las ${horaActual()}${opciones.unidad ? ` a la unidad ${opciones.unidad}` : ""} y sigue rumbo a ${destino}.`;
+    } else {
+      titulo = `${nino.nombre} bajó para cambiar de bus`;
+      cuerpo = `El conductor lo entregó a las ${horaActual()}${lugar}. Te avisamos cuando suba a la otra unidad.`;
+    }
   } else if (evento === "subio") {
     titulo = `${nino.nombre} subió al bus`;
     cuerpo = `Va en camino a ${destino}.`;

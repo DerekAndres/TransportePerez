@@ -25,8 +25,11 @@ español. `models.ts` debe ser **idéntico** en web (`src/types/`) y móvil (`ty
    estados (pendiente/listo), cero config. Padre: el transbordo es invisible. Admin:
    puede haber densidad. Si algo obliga a explicarle un concepto nuevo al conductor/padre, proponerlo antes.
 3. **Mecánica del transbordo.** Solo **decide quien ENTREGA**; quien recibe confirma
-   una lista que se llena sola (leída de `registros`, nunca de la ruta ajena). Si hay
-   **discrepancia, manda la recepción**; la discrepancia queda registrada.
+   una lista que se llena sola (leída de `registros`, nunca de la ruta ajena).
+   **Cadena de custodia (2026-09-23):** el receptor no puede marcar "subió" hasta
+   que el otro conductor marque la entrega — el botón queda apagado y dice qué
+   espera. Reemplaza a la regla anterior ("manda la recepción", que generaba una
+   `discrepancia`). Ver CLAUDE.md §1-bis.3 y §3-duotricies.
 
 ## 3. Qué está construido y funcionando
 
@@ -1874,6 +1877,117 @@ que ya viene con `@expo/image-utils` — **sin librerías nuevas**), como en ago
 ⚠️ **El APK del 2026-09-17 se compiló ANTES de esto: todavía tiene el logo
 viejo.** Para verlo en el teléfono hay que recompilar, y para verlo en el panel
 hay que volver a publicar el hosting.
+
+### 3-duotricies. Cadena de custodia en el transbordo y cinco arreglos de interfaz (2026-09-23) — compila limpio, NO probado en dispositivo
+
+Tanda pedida por Derek antes de la presentación. Seis cosas; la primera cambia
+una regla de negocio, las otras cinco son de interfaz.
+
+**A) 🔴 EL TRANSBORDO AHORA ES UNA CADENA DE CUSTODIA.** El conductor que
+RECIBE ya no puede marcar que un niño subió mientras el otro no haya marcado la
+entrega: el botón queda apagado y dice *"Esperando que el otro bus lo entregue"*,
+y se habilita solo cuando llega esa marca (la suscripción en vivo a `registros`
+del punto ya existía). Así, en todo momento hay **un responsable identificado**:
+nadie figura recibido sin que conste quién lo soltó.
+
+- ⚠️ **Reemplaza la regla anterior**, que estaba en CLAUDE.md §1-bis.3: *"si hay
+  discrepancia manda la recepción"*. Antes el receptor podía confirmar sin
+  entrega previa y la marca quedaba con `discrepancia: true` para que el admin
+  la revisara. **Los dos documentos ya se actualizaron** (CLAUDE.md §1-bis.3 y
+  §2 de este archivo). El campo `discrepancia` **se conserva en el modelo**
+  porque hay registros históricos que lo usan; la interfaz ya no lo genera.
+- **El costo, y hay que conocerlo:** si el teléfono del que entrega se queda sin
+  señal, su marca se queda en la cola del teléfono (`colaRegistros.ts`) y el
+  receptor queda **bloqueado**. La salida para ese caso es la que ya existía,
+  **"Continuar sin transbordo"**, que registra lo pendiente como excepción para
+  que el admin lo vea. Conviene probar justo eso en el teléfono.
+- Salió barato: `ItemAsistencia` ya tenía `habilitado`, y `GrupoAsistencia` ya lo
+  respeta tanto en el botón de cada niño como en el de "Todos" (`accionables`
+  excluye los deshabilitados). El filtro se repite además en `recibir()` como red
+  de seguridad: entre que se toca "Todos" y que se guarda, la lista en vivo pudo
+  cambiar.
+
+**B) El diálogo de transbordo del panel quedaba TAPADO por el mapa** en
+monitores grandes (`ArmadorRuta.tsx`). Leaflet pinta sus capas entre z-index 400
+y 1000 y el `Modal` de Mantine viene en 200. Se le puso `zIndex={2000}`, que es
+exactamente lo que ya hacía `SupervisionScreen` con su Drawer — el mismo bug,
+resuelto dos veces en el mismo panel. En monitores chicos no se notaba porque el
+mapa no llega hasta donde se abre el modal.
+
+**C) Botón para QUITAR la foto de perfil**, en la app (`PantallaConfiguracion`) y
+en el panel (el perfil nuevo, ver D). Antes se podía cambiar pero no sacar. Se
+guarda **cadena vacía** en vez de borrar el campo: en todo el sistema la foto se
+lee como `foto ? <imagen> : <inicial>`, así que `""` ya vuelve a la inicial y el
+tipo sigue siendo `string` en las dos copias de `models.ts`. El botón solo
+aparece si hay foto, y va al lado del nombre y no flotando sobre el avatar: un
+tacho encima de la foto de perfil se lee como "borrar la cuenta".
+
+**D) El panel web tiene PERFIL** (`components/PanelPerfil.tsx`). Tocar la burbuja
+del encabezado —burbuja y nombre, que es un blanco más fácil de acertar que un
+avatar de 34 px— abre el espejo de la pantalla "Configuración" del móvil: foto,
+teléfono y cambio de contraseña. Nombre, correo y rol se muestran pero no se
+editan, porque las reglas de Firestore solo dejan cambiar esos tres campos del
+propio documento. Se agregaron al web `authService.actualizarMiPerfil` y
+`enviarRecuperacionPassword` (ya existían en el móvil) y `refrescarPerfil` al
+`AuthContext` web. El panel se **monta solo mientras está abierto**, así el
+estado nace de cero cada vez y no hace falta un efecto que lo resincronice — que
+es además lo que pedía el ESLint nuevo (`react-hooks/set-state-in-effect`, que en
+la web sigue siendo error y en el móvil está bajado a aviso).
+
+**E) El bus del mapa del padre ya no es un punto**, es un bus
+(`SVG_BUS` en `constants/mapa.ts` + `.icono-bus`). Va dibujado a mano con
+rectángulos y círculos, no con un emoji: el emoji lo dibuja el sistema
+operativo, así que cambia de forma en cada teléfono y **no se puede pintar de
+blanco**, que es lo que hace falta sobre el zafiro de la cápsula. Las ventanas
+se pintan del color de fondo para que se lean como recortes. La cápsula del
+destino conserva su punto ámbar: ahora las dos se distinguen por FORMA y no solo
+por color, que es lo que se reconoce sin leer.
+
+**F) Se eliminó la tarjeta de "notificación de prueba"** de Configuración en la
+app. Era una herramienta de diagnóstico a la vista del usuario final —y dos de
+sus seis mensajes de estado delataban el andamiaje (uno nombraba `eas init` y
+otro *Expo Go*)—. El registro del token **no se perdió**: lo hacen los layouts de
+los tres roles al entrar (`registrarTokenPush`), que es donde siempre estuvo.
+⚠️ El botón **sigue existiendo en el APK del 17/09** y solo desaparece al
+recompilar, así que todavía sirve para verificar las push antes de la
+presentación.
+
+Sin cambios de modelo, de servicios de datos ni de reglas. Verificado: móvil
+`tsc` limpio, `eslint` **0 errores** y `expo export --platform android` OK; web
+`tsc` limpio, `eslint` **sin un solo problema** y `npm run build` OK.
+⚠️ Los avisos del móvil son **73**, no los 71 que decía este archivo: ninguno
+sale de los cuatro archivos tocados acá (dan cero), la cifra vieja quedó
+desactualizada desde la alineación de paquetes del 17/09.
+
+### 3-tritricies. El desplegable de puntos del transbordo, tapado por el mapa (2026-09-25) — desplegado
+
+Derek reportó que al marcar un transbordo en el armador de rutas, la lista de
+puntos posibles "no se despliega". No era que estuviera vacía: se abría y
+quedaba **detrás del mapa** — el mismo bug de §3-duotricies.B, un nivel más
+adentro. El `zIndex={2000}` que se le puso al `Modal` para ganarle a Leaflet
+(400–1000) no alcanza para sus `Select`: el desplegable de un Select de Mantine
+se pinta en un portal PROPIO, aparte del árbol del Modal, y no hereda su
+zIndex — sale con el valor por defecto de Mantine, más bajo que las capas de
+Leaflet, así que el mapa de fondo lo tapaba igual.
+
+Se les agregó `comboboxProps={{ zIndex: 2000 }}` a los dos Select del diálogo
+("¿Dónde cambia de bus?" y "¿Qué bus lo sigue desde ahí?"), el mismo patrón que
+ya usaba `SupervisionScreen` para su propio selector. Revisados los demás
+controles del diálogo: son los únicos dos Select ahí adentro.
+
+Verificado: `tsc` limpio, `eslint` sin avisos, `npm run build` OK. **Publicado**
+(`firebase deploy --only hosting`, junto con el APK nuevo del mismo día —
+ver más abajo).
+
+### APK del 2026-09-25 — publicado
+
+Se compiló y publicó un APK nuevo con los arreglos de §3-duotricies (cadena de
+custodia del transbordo, notificaciones en los dos extremos, error visible si
+falla la escucha del punto): build EAS `765460f6…`, enlace
+`https://expo.dev/artifacts/eas/YHGd23ZQ6H1_qgMrlyF66LurJHeUJoROL4J11mgzb_A.apk`,
+pegado en `descargar.js` y publicado junto con el panel web. Verificado en vivo
+en `transporte-perez.web.app/descargar`.
+⚠️ **Sigue pendiente lo mismo de siempre: probarlo en dos teléfonos.**
 
 ## 4. Modelo de datos (colecciones y tipos clave)
 

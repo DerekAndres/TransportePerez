@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDocs,
   onSnapshot,
@@ -73,6 +74,23 @@ export async function publicarAviso(
     de: adminId,
     hora: Timestamp.now(),
   });
+}
+
+// --- Borra un aviso publicado ---
+//
+// Acá SÍ se borra de verdad, a diferencia del resto del sistema (usuarios,
+// buses, rutas y niños usan borrado lógico con un switch `activo`, para
+// conservar el historial). El motivo es la diferencia de naturaleza: un aviso
+// no es un dato que se consulte después, es un mensaje que se está mostrando
+// ahora mismo en el teléfono de decenas de familias. Si el admin publicó algo
+// equivocado —una fecha mal, un aviso que ya no aplica—, dejarlo archivado no
+// sirve de nada y seguiría ocupando lugar en la pantalla del padre.
+//
+// ⚠️ Lo que NO se puede deshacer es la notificación: si el aviso ya salió al
+// teléfono, ese push ya llegó y no hay forma de retirarlo. Borrar quita el
+// aviso de la app, no el aviso que la persona ya leyó. La pantalla lo advierte.
+export async function borrarAviso(avisoId: string): Promise<void> {
+  await deleteDoc(doc(db, "avisos", avisoId));
 }
 
 // --- Escucha EN VIVO los avisos de un canal, del más nuevo al más viejo ---

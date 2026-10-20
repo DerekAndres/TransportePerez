@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
   Avatar,
@@ -9,12 +9,13 @@ import {
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useAuth } from '@/context/AuthContext';
 import { useEmisionUbicacion, type EstadoGps } from '@/hooks/use-emision-ubicacion';
 import BotonPrincipal from '@/components/BotonPrincipal';
 import ChipFiltro from '@/components/ChipFiltro';
+import EstadoVacio from '@/components/EstadoVacio';
 import GrupoAsistencia, { type ItemAsistencia } from '@/components/GrupoAsistencia';
 import PantallaBase from '@/components/PantallaBase';
 import PastillaEstado from '@/components/PastillaEstado';
@@ -386,27 +387,38 @@ export default function MiRutaDeHoyScreen() {
   // abrir la app o al cambiar de ruta. Se suman los que siguen en la cola del
   // teléfono sin llegar al servidor: sin eso, al reabrir la app sin señal un
   // niño ya marcado aparecería otra vez como pendiente.
-  const viajeEnCursoId = viaje?.estado === 'en_curso' ? viaje.id : null;
-  useEffect(() => {
-    if (!viajeEnCursoId) {
-      setRegistros([]);
-      return;
-    }
-    let cancelado = false;
-    Promise.all([
-      listarRegistrosDeViaje(viajeEnCursoId).catch(() => [] as Registro[]),
-      pendientesDeViaje(viajeEnCursoId),
-    ])
-      .then(([delServidor, enCola]) => {
-        if (cancelado) return;
-        const yaEstan = new Set(delServidor.map((r) => r.id));
-        setRegistros([...delServidor, ...enCola.filter((r) => !yaEstan.has(r.id))]);
-      })
-      .catch(() => {});
-    return () => {
-      cancelado = true;
-    };
-  }, [viajeEnCursoId]);
+  // Se cargan también los del viaje YA FINALIZADO, para poder mostrar el
+  // resumen de cierre. Las listas de asistencia no se dibujan en ese estado,
+  // así que no hay efecto secundario.
+  const viajeConRegistrosId = viaje ? viaje.id : null;
+  //
+  // ⚠️ VA EN useFocusEffect, NO en useEffect. La pantalla de Transbordo escribe
+  // registros de ESTE mismo viaje (el niño que sube en el punto), pero al volver
+  // acá el id del viaje no cambió, así que un useEffect no se volvía a ejecutar:
+  // el niño recibido seguía figurando como "aún no subió" y el botón "Bajó"
+  // quedaba deshabilitado para siempre. Con el foco, al volver se relee.
+  useFocusEffect(
+    useCallback(() => {
+      if (!viajeConRegistrosId) {
+        setRegistros([]);
+        return;
+      }
+      let cancelado = false;
+      Promise.all([
+        listarRegistrosDeViaje(viajeConRegistrosId).catch(() => [] as Registro[]),
+        pendientesDeViaje(viajeConRegistrosId),
+      ])
+        .then(([delServidor, enCola]) => {
+          if (cancelado) return;
+          const yaEstan = new Set(delServidor.map((r) => r.id));
+          setRegistros([...delServidor, ...enCola.filter((r) => !yaEstan.has(r.id))]);
+        })
+        .catch(() => {});
+      return () => {
+        cancelado = true;
+      };
+    }, [viajeConRegistrosId])
+  );
 
   const manejarIniciar = async () => {
     if (!usuario || !bus || !ruta) return;
@@ -579,6 +591,32 @@ export default function MiRutaDeHoyScreen() {
   const gruposEscuelaBajan = escuelas
     .map((e) => ({ escuela: e, ninos: ninosBajan.filter((n) => n.escuelaId === e.id) }))
     .filter((g) => g.ninos.length > 0);
+
+  // Los que quedaron FUERA de los grupos de arriba porque su extremo es un
+  // punto de transbordo. No alcanza con excluirlos: si no se los nombra, el
+  // conductor ve una ruta que dice "1 niño" y una lista vacía, y lo que concluye
+  // —con razón— es que la app está rota. Pasa siempre que TODOS los niños del
+  // bus vienen de un transbordo, que es un caso real: hay rutas que solo
+  // reciben. Se agrupan por punto igual que los otros grupos se agrupan por
+  // escuela o por parada.
+  const gruposPuntoSuben = puntos
+    .map((p) => ({
+      punto: p,
+      ninos: ninos.filter((n) => {
+        const extremo = porId.get(n.id)?.subeEn;
+        return extremo?.tipo === 'punto' && extremo.id === p.id;
+      }),
+    }))
+    .filter((g) => g.ninos.length > 0);
+
+  // Antes de arrancar, ¿hay algo que mostrar en "a quiénes vas a recoger"?
+  // Se distinguen DOS vacíos distintos, porque decirle al conductor algo que no
+  // es cierto es peor que no decirle nada: una ruta sin niños es normal, y una
+  // ruta CON niños que no se pueden mostrar es un problema que hay que reportar.
+  const gruposPreviaNormal = turno === 'manana' ? gruposParadaSuben : gruposEscuelaSuben;
+  const sinGrupos = gruposPreviaNormal.length === 0 && gruposPuntoSuben.length === 0;
+  const rutaSinNinos = sinGrupos && ninos.length === 0;
+  const ninosQueNoSeMuestran = sinGrupos && ninos.length > 0;
 
   // Un niño está "hecho" para la recogida si subió. Si quedó marcado como
   // AUSENTE no está hecho: está resuelto, pero resuelto mal, y se muestra en
@@ -1073,8 +1111,16 @@ export default function MiRutaDeHoyScreen() {
               </Tarjeta>
             )}
 
+            {/* CIERRE DEL VIAJE.
+                Esta tarjeta estaba escrita para el tema CLARO anterior: pintaba
+                el fondo con `secondaryContainer` y el texto con
+                `onSecondaryContainer`, que en el tema oscuro es casi negro. Como
+                además `Tarjeta` hoy es vidrio oscuro y se dibuja encima, quedaba
+                texto negro sobre fondo negro — ilegible. Ahora usa los colores
+                normales del tema y el verde aparece solo donde significa algo:
+                el ícono de "cumplido". */}
             {viaje?.estado === 'finalizado' && (
-              <Tarjeta style={{ backgroundColor: tema.colors.secondaryContainer }}>
+              <Tarjeta>
                 <View style={styles.filaHero}>
                   <Avatar.Icon
                     size={40}
@@ -1083,17 +1129,23 @@ export default function MiRutaDeHoyScreen() {
                     color={tema.colors.onSecondary}
                   />
                   <View style={styles.datosHero}>
-                    <Text
-                      variant="titleMedium"
-                      style={{ color: tema.colors.onSecondaryContainer }}
-                    >
+                    <Text variant="titleMedium" style={styles.negrita}>
                       {ruta.turno ? `Viaje de ${ETIQUETA_TURNO[ruta.turno]}` : 'Viaje'} finalizado
                     </Text>
-                    <Text variant="bodySmall" style={{ color: tema.colors.onSecondaryContainer }}>
+                    <Text variant="bodySmall" style={estilosBase.tenue}>
                       La asistencia quedó registrada.
                     </Text>
                   </View>
                 </View>
+
+                {/* El resumen de lo que pasó. Antes esta pantalla quedaba vacía
+                    después de finalizar, y el conductor no tenía forma de
+                    confirmar que lo que marcó quedó como él creía. */}
+                <FilaMetricas>
+                  <Metrica etiqueta="Llevaste" valor={entregados} tono="cumplido" />
+                  <Metrica etiqueta="Ausentes" valor={ausentes} tono={ausentes > 0 ? 'alerta' : 'neutro'} />
+                  <Metrica etiqueta="En la ruta" valor={total} tono="neutro" />
+                </FilaMetricas>
               </Tarjeta>
             )}
 
@@ -1127,6 +1179,37 @@ export default function MiRutaDeHoyScreen() {
                         ocupado
                       />
                     ))}
+
+                {/* Los que suben en un punto de transbordo. Van con su propio
+                    rótulo porque NO se recogen en una parada: se confirman en la
+                    pantalla de Transbordo, que se habilita al iniciar el viaje. */}
+                {gruposPuntoSuben.map((g) => (
+                  <GrupoAsistencia
+                    key={`previa-t-${g.punto.id}`}
+                    titulo={`Te los deja otro bus en ${g.punto.nombre}`}
+                    items={itemsRecogida(g.ninos)}
+                    etiquetaAccion="Subió"
+                    etiquetaGrupo="Iniciá el viaje"
+                    onAccion={() => {}}
+                    ocupado
+                  />
+                ))}
+
+                {rutaSinNinos && (
+                  <EstadoVacio
+                    icono="account-off-outline"
+                    titulo="Hoy no hay nadie asignado a esta ruta"
+                    texto="Cuando la administración le agregue niños, te aparecen acá. Si creés que es un error, avisá antes de salir."
+                  />
+                )}
+
+                {ninosQueNoSeMuestran && (
+                  <EstadoVacio
+                    icono="alert-circle-outline"
+                    titulo={`Esta ruta tiene ${total === 1 ? '1 niño' : `${total} niños`}, pero no se pueden mostrar`}
+                    texto="Puede ser falta de señal. Bajá la pantalla para recargar; si sigue igual, avisá a la administración antes de salir."
+                  />
+                )}
               </>
             )}
 
@@ -1134,7 +1217,7 @@ export default function MiRutaDeHoyScreen() {
               <>
                 {turno === 'manana' ? (
                   <>
-                    <TituloSeccion titulo="Recoger en casa" />
+                    {gruposParadaSuben.length > 0 && (<TituloSeccion titulo="Recoger en casa" />)}
                     {gruposParadaSuben.map((g) => (
                       <GrupoAsistencia
                         key={`p-${g.titulo}`}
@@ -1151,7 +1234,7 @@ export default function MiRutaDeHoyScreen() {
                       />
                     ))}
 
-                    <TituloSeccion titulo="Dejar en la escuela" />
+                    {gruposEscuelaBajan.length > 0 && (<TituloSeccion titulo="Dejar en la escuela" />)}
                     {gruposEscuelaBajan.map((g) => (
                       <GrupoAsistencia
                         key={`e-${g.escuela.id}`}
@@ -1168,7 +1251,7 @@ export default function MiRutaDeHoyScreen() {
                   </>
                 ) : (
                   <>
-                    <TituloSeccion titulo="Recoger en la escuela" />
+                    {gruposEscuelaSuben.length > 0 && (<TituloSeccion titulo="Recoger en la escuela" />)}
                     {gruposEscuelaSuben.map((g) => (
                       <GrupoAsistencia
                         key={`e-${g.escuela.id}`}
@@ -1185,7 +1268,7 @@ export default function MiRutaDeHoyScreen() {
                       />
                     ))}
 
-                    <TituloSeccion titulo="Dejar en casa" />
+                    {gruposParadaBajan.length > 0 && (<TituloSeccion titulo="Dejar en casa" />)}
                     {gruposParadaBajan.map((g) => (
                       <GrupoAsistencia
                         key={`p-${g.titulo}`}
@@ -1222,6 +1305,11 @@ export default function MiRutaDeHoyScreen() {
                               viajeId: viaje.id,
                               rutaId: ruta.id,
                               busId: bus.id,
+                              // La placa viaja como parámetro porque la pantalla
+                              // de transbordo la nombra en el aviso al padre
+                              // ("subió a la unidad HAB-1234") y no tiene por
+                              // qué volver a leer el bus para un solo dato.
+                              busPlaca: bus.placa ?? '',
                             },
                           })
                         }

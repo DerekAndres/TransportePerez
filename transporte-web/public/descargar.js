@@ -10,7 +10,7 @@
 // seguridad del hosting (firebase.json → Content-Security-Policy) no permite
 // scripts escritos dentro del HTML.
 var ENLACE_APK =
-  "https://expo.dev/artifacts/eas/Rox7IQdY2vFkUAINXRVJOwVFaAeeaLqAN4OqazDn6bU.apk";
+  "https://expo.dev/artifacts/eas/yJDJb-LEB1GvlgxKSMyaS_EzIQgPd3KWdXtVZljYXP0.apk";
 
 var zona = document.getElementById("zona-descarga");
 if (ENLACE_APK && ENLACE_APK !== "PENDIENTE") {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { Text, useTheme } from 'react-native-paper';
+import { Alert, StyleSheet, View } from 'react-native';
+import { Button, Text, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Timestamp } from 'firebase/firestore';
 
@@ -15,7 +15,7 @@ import TituloSeccion from '@/components/TituloSeccion';
 import EstadoVacio from '@/components/EstadoVacio';
 import AparicionSuave from '@/components/AparicionSuave';
 import CargandoBus from '@/components/CargandoBus';
-import { escucharAvisos, listarCanales, publicarAviso } from '@/services/canalesService';
+import { borrarAviso, escucharAvisos, listarCanales, publicarAviso } from '@/services/canalesService';
 import { notificarAvisoNuevo } from '@/services/notificacionesService';
 import { ESPACIO, estilosBase } from '@/constants/estilos';
 import type { Aviso, Canal } from '@/types/models';
@@ -54,6 +54,8 @@ export default function AvisosAdminScreen() {
   const [error, setError] = useState('');
   const [exito, setExito] = useState('');
   const [avisos, setAvisos] = useState<Aviso[]>([]);
+  // Cuál se está borrando ahora (para el spinner de su propio botón)
+  const [borrandoId, setBorrandoId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelado = false;
@@ -81,6 +83,35 @@ export default function AvisosAdminScreen() {
     }
     return escucharAvisos(canalId, setAvisos);
   }, [canalId]);
+
+  // Borrar un aviso ya publicado. Pide confirmación porque no se puede deshacer,
+  // y el texto dice lo que de verdad importa: el aviso desaparece de la app,
+  // pero la notificación que ya salió al teléfono no se puede retirar.
+  const pedirBorrar = (aviso: Aviso) => {
+    Alert.alert(
+      '¿Borrar este aviso?',
+      'Va a desaparecer de la app de los padres. La notificación que ya se envió no se puede retirar: quien la recibió ya la leyó.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Borrar',
+          style: 'destructive',
+          onPress: async () => {
+            setBorrandoId(aviso.id);
+            try {
+              await borrarAviso(aviso.id);
+              // La lista no se toca a mano: la alimenta escucharAvisos
+              // (onSnapshot), así que se actualiza sola.
+            } catch {
+              Alert.alert('No se pudo borrar', 'Revisá tu conexión e intentá de nuevo.');
+            } finally {
+              setBorrandoId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const publicar = async () => {
     const limpio = texto.trim();
@@ -253,6 +284,21 @@ export default function AvisosAdminScreen() {
             avisos.slice(0, 10).map((a, indice) => (
               <AparicionSuave key={a.id} indice={indice}>
                 <TarjetaAviso aviso={a} canalNombre={canalElegido?.nombre} lineas={5} />
+                {/* El borrado va FUERA de TarjetaAviso a propósito: esa tarjeta
+                    la comparte el inicio del padre, que no puede borrar nada. */}
+                <Button
+                  mode="text"
+                  icon="trash-can-outline"
+                  compact
+                  textColor={tema.colors.onSurfaceVariant}
+                  style={styles.botonBorrar}
+                  loading={borrandoId === a.id}
+                  disabled={borrandoId === a.id}
+                  onPress={() => pedirBorrar(a)}
+                  accessibilityLabel="Borrar este aviso"
+                >
+                  Borrar
+                </Button>
               </AparicionSuave>
             ))
           )}
@@ -268,4 +314,5 @@ const styles = StyleSheet.create({
   campo: { maxHeight: 180 },
   contador: { textAlign: 'right' },
   filaExito: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.interno },
+  botonBorrar: { alignSelf: 'flex-end', marginTop: -ESPACIO.minimo },
 });

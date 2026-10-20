@@ -310,6 +310,7 @@ export default function GestionUsuariosScreen({ rol }: Props) {
             <Table.Th>Correo</Table.Th>
             <Table.Th>Teléfono</Table.Th>
             <Table.Th>Registro</Table.Th>
+            <Table.Th>Avisos</Table.Th>
             <Table.Th>Activo</Table.Th>
             <Table.Th />
           </Table.Tr>
@@ -340,6 +341,38 @@ export default function GestionUsuariosScreen({ rol }: Props) {
                   </Badge>
                 )}
               </Table.Td>
+              {/* ¿LE VAN A LLEGAR LOS AVISOS AL TELÉFONO?
+                  Un usuario sin `expoPushToken` no recibe NINGUNA notificación
+                  —ni que su hijo subió, ni un comunicado de la escuela—, y hasta
+                  ahora eso era invisible: la empresa se enteraba cuando alguien
+                  llamaba a quejarse. El token se guarda solo, la primera vez que
+                  la persona abre la app y acepta el permiso.
+
+                  La columna solo LLAMA LA ATENCIÓN cuando hay algo que hacer. Si
+                  la persona ni siquiera terminó su registro, la columna
+                  "Registro" ya lo dice: repetirlo acá en rojo sería ruido, y el
+                  ojo aprende a saltear una columna que siempre grita. */}
+              <Table.Td>
+                {usuario.expoPushToken ? (
+                  <Text size="sm" c="dimmed">
+                    Sí
+                  </Text>
+                ) : usuario.debeCompletarPerfil ? (
+                  <Text size="sm" c="dimmed">
+                    —
+                  </Text>
+                ) : (
+                  <Tooltip
+                    multiline
+                    w={280}
+                    label="Entró a la app pero no tiene activadas las notificaciones: no le llega ningún aviso al teléfono. Suele ser porque rechazó el permiso. Se arregla en el teléfono: Ajustes → Aplicaciones → Transportes Perez → Notificaciones."
+                  >
+                    <Badge color="orange" variant="light">
+                      No recibe
+                    </Badge>
+                  </Tooltip>
+                )}
+              </Table.Td>
               <Table.Td>
                 <Switch checked={usuario.activo} onChange={() => alternarActivo(usuario)} />
               </Table.Td>
@@ -360,7 +393,7 @@ export default function GestionUsuariosScreen({ rol }: Props) {
           ))}
           {filtrados.length === 0 && (
             <Table.Tr>
-              <Table.Td colSpan={6}>
+              <Table.Td colSpan={7}>
                 <Text c="dimmed" ta="center" py="lg" size="sm">
                   {usuarios.length === 0
                     ? textos.vacio

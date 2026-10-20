@@ -22,6 +22,9 @@ interface AuthContextValue {
   avisoSesion: string;
   login: (email: string, password: string) => Promise<void>;
   logout: (motivo?: string) => Promise<void>;
+  // Vuelve a leer el propio documento de Firestore. Lo usa el panel de perfil
+  // después de guardar, para que el cambio se vea sin recargar la página.
+  refrescarPerfil: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -94,8 +97,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await logoutService();
   };
 
+  const refrescarPerfil = async () => {
+    if (!usuario) return;
+    const datos = await obtenerPerfilUsuario(usuario.id);
+    if (datos) setUsuario(datos);
+  };
+
   return (
-    <AuthContext.Provider value={{ usuario, cargando, avisoSesion, login, logout }}>
+    <AuthContext.Provider
+      value={{ usuario, cargando, avisoSesion, login, logout, refrescarPerfil }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -10,7 +10,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { guardarRegistros } from "./colaRegistros";
-import type { EventoRegistro, Registro, Ruta } from "../types/models";
+import type { EventoRegistro, Registro, Ruta, Turno } from "../types/models";
 
 // Contexto del transbordo (viene de la pantalla del conductor)
 export interface ContextoTransbordo {
@@ -20,6 +20,9 @@ export interface ContextoTransbordo {
   conductorId: string;
   puntoId: string;
   fecha: string; // "YYYY-MM-DD"
+  // Turno del viaje. Separa el transbordo de la mañana del de la tarde en el
+  // mismo punto y el mismo día (ver el comentario de Registro.turno).
+  turno?: Turno;
 }
 
 // Un ítem a registrar en el transbordo
@@ -46,10 +49,16 @@ export async function obtenerRuta(rutaId: string): Promise<Ruta | null> {
 // Solo filtros de igualdad (fecha + lugarTipo + lugarId): NO requiere índice
 // compuesto. El bus RECEPTOR usa esto para ver, en vivo, a quién dejó el EMISOR en
 // el punto — sin leer la ruta del otro bus (solo consulta 'registros' del punto).
+//
+// ⚠️ El error NO se traga. Antes un fallo de esta consulta devolvía una lista
+// vacía, que es indistinguible de "el otro bus todavía no entregó a nadie": el
+// conductor se queda esperando una entrega que nunca va a ver y culpa al otro
+// conductor. Es el mismo defecto que ya se corrigió en `escucharRutasDelBus`.
 export function escucharRegistrosDelPunto(
   fecha: string,
   puntoId: string,
-  callback: (registros: Registro[]) => void
+  callback: (registros: Registro[]) => void,
+  alFallar?: (error: unknown) => void
 ): Unsubscribe {
   return onSnapshot(
     query(
@@ -59,7 +68,10 @@ export function escucharRegistrosDelPunto(
       where("lugarId", "==", puntoId)
     ),
     (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Registro)),
-    () => callback([])
+    (error) => {
+      callback([]);
+      alFallar?.(error);
+    }
   );
 }
 
@@ -80,6 +92,7 @@ export function registrarTransbordo(
       horaMs,
       paradaId: "",
       fecha: ctx.fecha,
+      ...(ctx.turno ? { turno: ctx.turno } : {}),
       lugarTipo: "punto" as const,
       lugarId: ctx.puntoId,
       rutaId: ctx.rutaId,

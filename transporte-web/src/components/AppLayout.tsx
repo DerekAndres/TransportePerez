@@ -1,5 +1,16 @@
 import { useEffect } from "react";
-import { AppShell, Avatar, Burger, Button, Group, NavLink, ScrollArea, Text, Title } from "@mantine/core";
+import {
+  AppShell,
+  Avatar,
+  Burger,
+  Button,
+  Group,
+  NavLink,
+  ScrollArea,
+  Text,
+  Title,
+  UnstyledButton,
+} from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import {
   IconArchive,
@@ -27,6 +38,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { MINUTOS_INACTIVIDAD, useCierrePorInactividad } from "../hooks/use-cierre-por-inactividad";
 import { recalcularAccesosSiHaceFalta } from "../services/accesoConductoresService";
+import PanelPerfil from "./PanelPerfil";
 
 // ============================================
 // ESQUELETO DEL PANEL
@@ -108,6 +120,7 @@ export default function AppLayout() {
   const location = useLocation();
   // En pantallas chicas el menú se colapsa; el burger lo abre/cierra
   const [menuAbierto, { toggle }] = useDisclosure();
+  const [perfilAbierto, { open: abrirPerfil, close: cerrarPerfil }] = useDisclosure();
 
   // Pasado un rato sin usar el panel, la sesión se cierra sola (ver el hook)
   useCierrePorInactividad(() => {
@@ -167,13 +180,24 @@ export default function AppLayout() {
           </Group>
 
           <Group gap="sm" wrap="nowrap">
-            {/* La burbuja del perfil, igual que en el móvil */}
-            <Avatar color="marca" radius="xl" size={34}>
-              {usuario?.nombre?.trim().charAt(0).toUpperCase() ?? "?"}
-            </Avatar>
-            <Text size="sm" c="dimmed" visibleFrom="sm">
-              {usuario?.nombre}
-            </Text>
+            {/* La burbuja del perfil, igual que en el móvil. Toda la zona
+                —burbuja y nombre— abre el perfil: un blanco de un solo avatar de
+                34 px es difícil de acertar con el mouse, y el nombre al lado ya
+                se ve como parte de la misma cosa. */}
+            <UnstyledButton
+              onClick={abrirPerfil}
+              aria-label="Abrir mi perfil"
+              style={{ borderRadius: 999 }}
+            >
+              <Group gap="sm" wrap="nowrap">
+                <Avatar color="marca" radius="xl" size={34} src={usuario?.foto || undefined}>
+                  {usuario?.nombre?.trim().charAt(0).toUpperCase() ?? "?"}
+                </Avatar>
+                <Text size="sm" c="dimmed" visibleFrom="sm">
+                  {usuario?.nombre}
+                </Text>
+              </Group>
+            </UnstyledButton>
             <Button
               variant="subtle"
               size="compact-sm"
@@ -218,6 +242,8 @@ export default function AppLayout() {
       <AppShell.Main>
         <Outlet />
       </AppShell.Main>
+
+      {perfilAbierto && <PanelPerfil alCerrar={cerrarPerfil} />}
     </AppShell>
   );
 }

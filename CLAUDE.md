@@ -25,11 +25,17 @@ Estos dos principios mandan sobre cualquier decisión de features o UI. Si algo 
 
 **2. Simplicidad de operación por encima de completitud de funciones.**
 - **Conductor** (maneja un bus): botones grandes, "Todos" siempre visible, dos estados máximo (pendiente / listo), cero configuración.
-- **Padre** (no debe entender el sistema): recibe avisos y ve el mapa. No agregarle pantallas, filtros ni conceptos nuevos. El transbordo para él es invisible — una notificación y el marcador que sigue moviéndose.
+- **Padre** (no debe entender el sistema): recibe avisos y ve el mapa. No agregarle pantallas, filtros ni conceptos nuevos. ⚠️ **El transbordo dejó de ser invisible para él (2026-09-24, pedido de la empresa):** ahora recibe DOS avisos, uno cuando su hijo baja de un bus en el punto y otro cuando sube al siguiente. El motivo es que entre esas dos marcas el niño no va arriba de ninguna unidad, y ese es el rato que un padre quiere poder ver. Lo que sigue valiendo es que **no se le agrega ninguna pantalla ni concepto**: se entera por la notificación y por el mapa, como siempre.
 - **Admin/jefe** (configura): ahí sí puede haber densidad.
 - Si una función requiere explicarle algo nuevo al conductor o al padre, **proponela antes de construirla**.
 
-**3. Mecánica del transbordo.** Solo **decide quien ENTREGA**; quien **recibe confirma una lista que se llena sola** (su plan + lo que dejó el otro bus, leído de `registros` — nunca de la ruta ajena). Si hay **discrepancia**, **manda la recepción**: quien tiene físicamente al niño gana, y la discrepancia queda registrada para el admin.
+**3. Mecánica del transbordo.** Solo **decide quien ENTREGA**; quien **recibe confirma una lista que se llena sola** (su plan + lo que dejó el otro bus, leído de `registros` — nunca de la ruta ajena).
+
+**Cadena de custodia (regla vigente desde 2026-09-23, pedida por la empresa):** el receptor **no puede marcar que un niño subió mientras el otro conductor no lo haya entregado**. El botón queda apagado y dice qué está esperando; se habilita solo cuando llega la marca de entrega (suscripción en vivo a `registros` del punto). Así, en todo momento hay **un responsable identificado**: nadie aparece recibido sin que conste quién lo soltó.
+
+> ⚠️ Esto **reemplaza** la regla anterior ("si hay discrepancia manda la recepción", que permitía al receptor confirmar sin entrega previa y dejaba la marca como `discrepancia` para el admin). El campo `discrepancia` sigue en el modelo porque hay registros históricos que lo usan, pero la interfaz ya no lo genera.
+>
+> **Costo conocido:** si el teléfono del que entrega se queda sin señal, su marca no llega y el receptor queda bloqueado. La salida para ese caso es "Continuar sin transbordo", que registra lo pendiente como excepción para que el admin lo revise.
 
 ## 2. Alcance funcional obligatorio (del informe — nada de esto es opcional)
 

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Linking, StyleSheet, View } from 'react-native';
 import {
   Avatar,
   Button,
@@ -16,11 +16,13 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import PantallaBase from '@/components/PantallaBase';
 import Tarjeta from '@/components/Tarjeta';
+import { useFocusEffect } from 'expo-router';
+
 import { actualizarMiPerfil, enviarRecuperacionPassword } from '@/services/authService';
 import {
   EXPLICACION_PUSH,
-  enviarPruebaPush,
-  registrarTokenPush,
+  activarNotificaciones,
+  consultarEstadoPush,
   type EstadoPush,
 } from '@/services/notificacionesService';
 import { elegirFotoComprimida } from '@/utils/fotos';
@@ -41,43 +43,54 @@ export default function PantallaConfiguracion() {
   const [error, setError] = useState('');
   const [correoEnviado, setCorreoEnviado] = useState(false);
 
-  // --- Diagnóstico de notificaciones ---
-  // Se consulta al abrir la pantalla. `registrarTokenPush` es idempotente: si
-  // ya hay permiso y token, no molesta al usuario; si falta algo, devuelve
-  // exactamente qué falta.
+  // --- Avisos del teléfono ---
+  // Los layouts de los tres roles ya registran el token al entrar. Pero si la
+  // persona rechazó el permiso (o lo apagó después), se queda SIN recibir nada
+  // y sin ninguna forma de volver atrás desde la app. Esta tarjeta es esa vía.
   const [estadoPush, setEstadoPush] = useState<EstadoPush | null>(null);
-  const [probando, setProbando] = useState(false);
-  const [resultadoPrueba, setResultadoPrueba] = useState<{ ok: boolean; mensaje: string } | null>(
-    null
-  );
+  const [activando, setActivando] = useState(false);
 
   const uid = usuario?.id;
-  useEffect(() => {
-    if (!uid) return;
-    let cancelado = false;
-    registrarTokenPush(uid)
-      .then((estado) => {
-        if (!cancelado) setEstadoPush(estado);
-      })
-      .catch(() => {
-        if (!cancelado) setEstadoPush('error');
-      });
-    return () => {
-      cancelado = true;
-    };
-  }, [uid]);
+  // Al volver de los ajustes del sistema hay que releer el estado: la persona
+  // pudo haber activado el permiso allá, y la tarjeta tiene que reflejarlo sin
+  // que haga falta reiniciar la app.
+  useFocusEffect(
+    useCallback(() => {
+      if (!uid) return;
+      let cancelado = false;
+      consultarEstadoPush(uid)
+        .then((e) => {
+          if (!cancelado) setEstadoPush(e);
+        })
+        .catch(() => {
+          if (!cancelado) setEstadoPush('error');
+        });
+      return () => {
+        cancelado = true;
+      };
+    }, [uid])
+  );
 
   if (!usuario) return null;
 
-  const probarNotificaciones = async () => {
-    setProbando(true);
-    setResultadoPrueba(null);
+  const activarAvisos = async () => {
+    setError('');
+    setMensaje('');
+    setActivando(true);
     try {
-      setResultadoPrueba(await enviarPruebaPush(usuario.id));
+      const { estado, abrirAjustes } = await activarNotificaciones(usuario.id);
+      setEstadoPush(estado);
+      if (abrirAjustes) {
+        // Ya dijo que no antes: el diálogo del sistema no vuelve a aparecer y
+        // la única forma de activarlos es la pantalla de ajustes de la app.
+        await Linking.openSettings();
+      } else if (estado === 'listo') {
+        setMensaje('Listo, ya vas a recibir los avisos.');
+      }
     } catch {
-      setResultadoPrueba({ ok: false, mensaje: 'No se pudo enviar la prueba.' });
+      setError('No se pudieron activar los avisos. Intentá de nuevo.');
     } finally {
-      setProbando(false);
+      setActivando(false);
     }
   };
 
@@ -93,6 +106,25 @@ export default function PantallaConfiguracion() {
       }
     } catch {
       setError('No se pudo actualizar la foto. Revisá tu conexión.');
+    } finally {
+      setSubiendoFoto(false);
+    }
+  };
+
+  // Se guarda cadena vacía en vez de borrar el campo: en toda la app la foto se
+  // lee como `usuario.foto ? <imagen> : <inicial>`, así que "" ya vuelve a la
+  // inicial, y el tipo del campo sigue siendo string en las dos copias de
+  // `models.ts`. Borrarlo de verdad obligaría a cambiar esa firma sin ganar nada.
+  const quitarFoto = async () => {
+    setError('');
+    setMensaje('');
+    setSubiendoFoto(true);
+    try {
+      await actualizarMiPerfil(usuario.id, { foto: '' });
+      await refrescarPerfil();
+      setMensaje('Foto quitada.');
+    } catch {
+      setError('No se pudo quitar la foto. Revisá tu conexión.');
     } finally {
       setSubiendoFoto(false);
     }
@@ -164,6 +196,24 @@ export default function PantallaConfiguracion() {
                   ? 'Administración'
                   : 'Padre de familia'}
             </Text>
+            {/* Solo aparece si hay algo que quitar. Va acá y no como segundo
+                botón flotando sobre el avatar: un tacho encima de la foto de
+                perfil se lee como "borrar la cuenta". */}
+            {!!usuario.foto && (
+              <Button
+                mode="text"
+                icon="trash-can-outline"
+                compact
+                onPress={quitarFoto}
+                disabled={subiendoFoto}
+                textColor={tema.colors.onSurfaceVariant}
+                style={styles.botonQuitarFoto}
+                labelStyle={styles.etiquetaQuitarFoto}
+                accessibilityLabel="Quitar la foto de perfil"
+              >
+                Quitar foto
+              </Button>
+            )}
           </View>
         </View>
       </Tarjeta>
@@ -195,15 +245,15 @@ export default function PantallaConfiguracion() {
         </Button>
       </Tarjeta>
 
-      {/* Notificaciones: estado real + prueba.
-          Está a la vista del usuario a propósito. "No me llegan los avisos" es
-          el reclamo más difícil de diagnosticar a distancia; con esta tarjeta,
-          quien sea que tenga el teléfono en la mano puede decir en qué punto se
-          corta. */}
+      {/* Avisos del teléfono.
+          Cuando están activados la tarjeta NO ofrece ningún botón: no hay nada
+          que hacer, y un botón que no hace falta invita a tocarlo. Cuando no lo
+          están, la acción es lo más visible de la tarjeta, porque sin avisos el
+          padre no se entera de que su hijo subió al bus. */}
       <Tarjeta>
         <View style={styles.filaOpcion}>
           <MaterialCommunityIcons
-            name={estadoPush === 'listo' ? 'bell-check' : 'bell-alert'}
+            name={estadoPush === 'listo' ? 'bell-check' : 'bell-off-outline'}
             size={22}
             color={
               estadoPush === 'listo'
@@ -215,7 +265,7 @@ export default function PantallaConfiguracion() {
           />
           <View style={styles.textoOpcion}>
             <Text variant="titleSmall" style={styles.negrita}>
-              Notificaciones
+              Avisos en este teléfono
             </Text>
             <Text variant="bodySmall" style={estilosBase.tenue}>
               {estadoPush === null ? 'Comprobando…' : EXPLICACION_PUSH[estadoPush]}
@@ -223,33 +273,16 @@ export default function PantallaConfiguracion() {
           </View>
         </View>
 
-        <Button
-          mode="contained-tonal"
-          icon="bell-ring"
-          onPress={probarNotificaciones}
-          loading={probando}
-          disabled={probando || estadoPush === null}
-        >
-          Enviar una notificación de prueba
-        </Button>
-
-        {!!resultadoPrueba && (
-          <View style={styles.filaOpcion}>
-            <MaterialCommunityIcons
-              name={resultadoPrueba.ok ? 'check-circle' : 'alert-circle'}
-              size={17}
-              color={resultadoPrueba.ok ? tema.colors.secondary : tema.colors.error}
-            />
-            <Text
-              variant="bodySmall"
-              style={[
-                styles.textoOpcion,
-                { color: resultadoPrueba.ok ? tema.colors.secondary : tema.colors.error },
-              ]}
-            >
-              {resultadoPrueba.mensaje}
-            </Text>
-          </View>
+        {estadoPush !== null && estadoPush !== 'listo' && (
+          <Button
+            mode="contained-tonal"
+            icon="bell-ring"
+            onPress={activarAvisos}
+            loading={activando}
+            disabled={activando || estadoPush === 'sin_dispositivo'}
+          >
+            Activar los avisos
+          </Button>
         )}
       </Tarjeta>
 
@@ -308,6 +341,10 @@ const styles = StyleSheet.create({
   filaPerfil: { flexDirection: 'row', alignItems: 'center', gap: ESPACIO.seccion },
   botonCamara: { position: 'absolute', bottom: -10, right: -14 },
   datosPerfil: { flex: 1, gap: 2 },
+  // El margen negativo cancela el relleno interno del botón de Paper, para que
+  // el texto quede alineado con el nombre y el correo de arriba.
+  botonQuitarFoto: { alignSelf: 'flex-start', marginLeft: -8, marginTop: 4 },
+  etiquetaQuitarFoto: { fontSize: 12, marginVertical: 0 },
   negrita: { fontFamily: FUENTES.textoNegrita },
   campo: { borderRadius: RADIO.control },
   opcion: { borderRadius: RADIO.control, paddingVertical: 10, paddingHorizontal: 4 },

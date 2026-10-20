@@ -6,7 +6,7 @@ import BotonMapa from '@/components/BotonMapa';
 import { escucharUbicacion } from '@/services/padreService';
 import type { UbicacionActual } from '@/types/models';
 import { ESPACIO } from '@/constants/estilos';
-import { COLORES_MAPA, CSS_MAPA, JS_ENTRADA_MAPA, TESELAS } from '@/constants/mapa';
+import { COLORES_MAPA, CSS_MAPA, JS_ENTRADA_MAPA, SVG_BUS, TESELAS } from '@/constants/mapa';
 
 // Mapa del bus en vivo, reutilizable: lo usan la pantalla completa del mapa y la
 // vista previa embebida en el inicio del padre. Antes este HTML vivía suelto
@@ -111,13 +111,22 @@ function generarHtmlMapa(
     // Cápsula con nombre: un punto de color y el texto al lado. Se arma con
     // textContent y no con HTML para que el nombre de una parada escrito por
     // un padre no pueda inyectar marcado.
-    function capsula(texto, color, clases, sub) {
+    function capsula(texto, color, clases, sub, conIconoBus) {
       var caja = document.createElement('div');
       caja.className = 'pastilla-mapa ' + (clases || '');
-      var punto = document.createElement('span');
-      punto.className = 'punto';
-      if (color) { punto.style.background = color; punto.style.boxShadow = '0 0 8px ' + color; }
-      caja.appendChild(punto);
+      if (conIconoBus) {
+        // El bus lleva su silueta en lugar del punto: en un mapa con dos
+        // cápsulas, la forma se reconoce antes que el color.
+        var icono = document.createElement('span');
+        icono.className = 'icono-bus';
+        icono.innerHTML = ${JSON.stringify(SVG_BUS)};
+        caja.appendChild(icono);
+      } else {
+        var punto = document.createElement('span');
+        punto.className = 'punto';
+        if (color) { punto.style.background = color; punto.style.boxShadow = '0 0 8px ' + color; }
+        caja.appendChild(punto);
+      }
       var etiqueta = document.createElement('span');
       etiqueta.textContent = texto;
       caja.appendChild(etiqueta);
@@ -241,7 +250,7 @@ function generarHtmlMapa(
       if (!marcadorBus) {
         // La cápsula del bus lleva el aura que late: es lo único del mapa que
         // está pasando AHORA, y tiene que distinguirse del destino sin leer.
-        var caja = capsula(${JSON.stringify(unidad ? `Unidad ${unidad}` : 'Bus')}, null, 'pastilla-bus');
+        var caja = capsula(${JSON.stringify(unidad ? `Unidad ${unidad}` : 'Bus')}, null, 'pastilla-bus', null, true);
         var aura = document.createElement('span');
         aura.className = 'aura-bus';
         caja.appendChild(aura);

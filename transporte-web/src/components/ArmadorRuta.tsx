@@ -1169,6 +1169,11 @@ export default function ArmadorRuta({
         onClose={() => setTransbordoDe(null)}
         title="El niño cambia de bus"
         size="lg"
+        // Leaflet pinta sus capas entre z-index 400 y 1000; el Modal de Mantine
+        // viene en 200, así que sin esto el mapa de abajo tapa el diálogo. Se
+        // notaba sobre todo en monitores grandes, donde el mapa llega hasta el
+        // centro de la pantalla, que es justo donde el Modal se abre.
+        zIndex={2000}
       >
         {ninoDelDialogo && (
           <Stack gap="sm">
@@ -1197,6 +1202,7 @@ export default function ArmadorRuta({
                   value={tbPunto}
                   onChange={(v) => setTbPunto(v ?? "")}
                   data={puntos.map((p) => ({ value: p.id, label: p.nombre }))}
+                  comboboxProps={{ zIndex: 2000 }} // por encima de las capas de Leaflet (el desplegable se porta aparte del Modal y no hereda su zIndex)
                 />
 
                 {/* Las rutas que SÍ pasan por su escuela van primero y marcadas */}
@@ -1205,6 +1211,7 @@ export default function ArmadorRuta({
                   searchable
                   value={tbRutaDestino}
                   onChange={(v) => setTbRutaDestino(v ?? "")}
+                  comboboxProps={{ zIndex: 2000 }} // mismo motivo que el Select de arriba
                   data={[...rutasDestino]
                     .sort(
                       (a, b) =>

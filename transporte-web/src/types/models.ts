@@ -276,6 +276,12 @@ export interface Registro {
   // Permiten que el bus RECEPTOR reconstruya a quién dejó el bus EMISOR en el punto,
   // sin leer la ruta del otro bus (solo consulta 'registros' del punto).
   fecha?: string; // "YYYY-MM-DD" — para consultar los registros del punto por día
+  // El turno del viaje en el que se hizo la marca. Es lo que separa el
+  // transbordo de la MAÑANA del de la TARDE en el mismo punto y el mismo día:
+  // un niño cruza ese punto dos veces al día (de ida a la escuela y de vuelta a
+  // casa), y sin esto la pantalla de la tarde mostraría al niño como ya
+  // entregado y subido por lo que pasó a la mañana.
+  turno?: Turno;
   lugarTipo?: TipoLugar; // 'punto' cuando el evento ocurre en un transbordo
   lugarId?: string; // id del lugar (puntoId cuando lugarTipo === 'punto')
   rutaId?: string;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActionIcon,
   Alert,
   Avatar,
   Badge,
@@ -26,16 +27,19 @@ import { useForm } from "@mantine/form";
 import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import {
+  IconAlertTriangle,
   IconCamera,
   IconInfoCircle,
   IconPencil,
   IconPlus,
   IconSend,
+  IconTrash,
   IconUsers,
 } from "@tabler/icons-react";
 import { useAuth } from "../context/AuthContext";
 import {
   actualizarCanal,
+  borrarAviso,
   cambiarActivoCanal,
   crearCanal,
   escucharAvisos,
@@ -78,6 +82,10 @@ export default function CanalesScreen() {
   const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [texto, setTexto] = useState("");
   const [publicando, setPublicando] = useState(false);
+  // Borrado de un aviso ya publicado: el que espera confirmación y el que se
+  // está borrando ahora (para el spinner de su propio botón y no el de todos).
+  const [porBorrarAviso, setPorBorrarAviso] = useState<Aviso | null>(null);
+  const [borrandoId, setBorrandoId] = useState<string | null>(null);
 
   const [modalAbierto, { open, close }] = useDisclosure(false);
   const [editando, setEditando] = useState<Canal | null>(null);
@@ -238,6 +246,25 @@ export default function CanalesScreen() {
       cargar();
     } catch {
       notifications.show({ color: "red", message: "No se pudo cambiar el estado." });
+    }
+  };
+
+  const confirmarBorrarAviso = (aviso: Aviso) => setPorBorrarAviso(aviso);
+
+  const borrarAvisoConfirmado = async () => {
+    if (!porBorrarAviso) return;
+    const id = porBorrarAviso.id;
+    setBorrandoId(id);
+    setPorBorrarAviso(null);
+    try {
+      await borrarAviso(id);
+      // La lista NO se toca a mano: la alimenta `escucharAvisos` (onSnapshot),
+      // así que se actualiza sola al confirmarse el borrado en Firestore.
+      notifications.show({ color: "teal", message: "Aviso borrado." });
+    } catch {
+      notifications.show({ color: "red", message: "No se pudo borrar el aviso." });
+    } finally {
+      setBorrandoId(null);
     }
   };
 
@@ -449,9 +476,27 @@ export default function CanalesScreen() {
                   )}
                   {avisos.map((a) => (
                     <Paper key={a.id} withBorder p="sm">
-                      <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                        {a.texto}
-                      </Text>
+                      <Group gap="xs" align="flex-start" wrap="nowrap">
+                        <Text size="sm" style={{ whiteSpace: "pre-wrap", flex: 1 }}>
+                          {a.texto}
+                        </Text>
+                        {/* Discreto y sin color de alarma: el borrado es una
+                            acción legítima y frecuente (un aviso mal escrito),
+                            no algo peligroso que haya que señalizar en rojo. La
+                            confirmación es la que frena el clic accidental. */}
+                        <Tooltip label="Borrar este aviso">
+                          <ActionIcon
+                            variant="subtle"
+                            color="gray"
+                            size="sm"
+                            aria-label="Borrar este aviso"
+                            loading={borrandoId === a.id}
+                            onClick={() => confirmarBorrarAviso(a)}
+                          >
+                            <IconTrash size={15} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
                       <Text size="xs" c="dimmed" mt={4}>
                         {cuando(a)}
                       </Text>
@@ -539,6 +584,44 @@ export default function CanalesScreen() {
             </Group>
           ))}
         </Stack>
+      </Modal>
+
+      {/* Confirmación de borrado de un aviso */}
+      <Modal
+        opened={!!porBorrarAviso}
+        onClose={() => setPorBorrarAviso(null)}
+        title="Borrar aviso"
+      >
+        {porBorrarAviso && (
+          <Stack>
+            <Paper withBorder p="sm">
+              <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                {porBorrarAviso.texto}
+              </Text>
+            </Paper>
+
+            {/* Lo importante de esta pantalla: que quede claro qué NO deshace */}
+            <Alert color="orange" icon={<IconAlertTriangle size={16} />}>
+              El aviso desaparece de la app de los padres, pero{" "}
+              <b>la notificación que ya se envió no se puede retirar</b>: quien la
+              haya recibido en su teléfono ya la leyó.
+            </Alert>
+
+            <Text size="sm" c="dimmed">
+              Esto no se puede deshacer. Si el aviso solo estaba mal redactado,
+              podés borrarlo y publicar uno corregido.
+            </Text>
+
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setPorBorrarAviso(null)}>
+                Cancelar
+              </Button>
+              <Button color="red" onClick={borrarAvisoConfirmado}>
+                Borrar el aviso
+              </Button>
+            </Group>
+          </Stack>
+        )}
       </Modal>
     </Stack>
   );

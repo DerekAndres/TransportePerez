@@ -28,8 +28,21 @@ import CargandoBus from '@/components/CargandoBus';
 // Pantalla de transbordo del conductor. Asimetría:
 //  - ENTREGA (decide): mis niños que bajan en este punto. Confirmo individual o "Todos".
 //  - RECIBE (no decide): la lista se llena sola (mi plan + lo que dejó el otro bus).
-//    Solo confirmo "Subieron". Precedencia: si confirmo a alguien que el otro bus no
-//    marcó, queda registrado como discrepancia. Dos estados: pendiente / listo.
+//    Solo confirmo "Subieron". Dos estados: pendiente / listo.
+//
+// CADENA DE CUSTODIA (regla pedida por la empresa, 2026-09-23): el receptor NO
+// puede marcar que un niño subió mientras el otro conductor no lo haya
+// entregado. Antes sí podía, y la marca quedaba registrada como `discrepancia`
+// para que la revisara el admin; ahora el botón está apagado hasta que llega la
+// entrega. El motivo es que un niño no puede figurar en dos buses a la vez ni
+// aparecer recibido por alguien sin que nadie conste que lo soltó: con dos
+// marcas encadenadas, en cualquier momento hay UN responsable identificado.
+//
+// ⚠️ El costo de la regla, y hay que conocerlo: si el teléfono del que entrega
+// se queda sin señal, su marca se queda en la cola del teléfono y el receptor
+// queda bloqueado. Para ese caso está "Continuar sin transbordo", que registra
+// lo pendiente como excepción para que el admin lo vea. El campo `discrepancia`
+// se conserva en el modelo porque hay registros históricos que lo usan.
 export default function TransbordoScreen() {
   const { usuario } = useAuth();
   const router = useRouter();
@@ -40,6 +53,7 @@ export default function TransbordoScreen() {
     viajeId: string;
     rutaId: string;
     busId: string;
+    busPlaca: string;
   }>();
 
   const fecha = fechaDeHoy();
@@ -52,6 +66,9 @@ export default function TransbordoScreen() {
   const [ocupado, setOcupado] = useState(false);
   const [demorado, setDemorado] = useState(false);
   const [mostrarExcepcion, setMostrarExcepcion] = useState(false);
+  // La consulta en vivo del punto falló. Importa mostrarlo: sin esto, el
+  // conductor ve una lista vacía y cree que el otro bus no entregó a nadie.
+  const [falloEscucha, setFalloEscucha] = useState(false);
 
   // Carga inicial: ruta, niños que llevo, registros de mi viaje (los del
   // servidor y los que todavía están en la cola del teléfono)
@@ -82,7 +99,9 @@ export default function TransbordoScreen() {
 
   // Suscripción EN VIVO a los registros del punto (para ver lo que deja el otro bus)
   useEffect(() => {
-    const unsub = escucharRegistrosDelPunto(fecha, params.puntoId, setRegistrosPunto);
+    const unsub = escucharRegistrosDelPunto(fecha, params.puntoId, setRegistrosPunto, () =>
+      setFalloEscucha(true)
+    );
     return unsub;
   }, [fecha, params.puntoId]);
 
@@ -93,21 +112,47 @@ export default function TransbordoScreen() {
     conductorId: usuario?.id ?? '',
     puntoId: params.puntoId,
     fecha,
+    turno: ruta?.turno,
   };
 
   const ninosPorId = useMemo(() => new Map(ninos.map((n) => [n.id, n])), [ninos]);
 
+  // ⚠️ SOLO LOS DE MI TURNO. La consulta al punto trae todo lo del DÍA (filtra
+  // por fecha + punto, que es lo que permite ver lo que dejó el otro bus sin
+  // leer su ruta). Pero un niño cruza el mismo punto DOS VECES al día: de ida a
+  // la escuela y de vuelta a casa. Sin este filtro, al abrir el transbordo de la
+  // tarde el niño aparecía ya entregado y ya subido por lo que había pasado a la
+  // mañana, sin que nadie marcara nada.
+  //
+  // Los registros SIN turno se descartan: son de antes de este campo, y darlos
+  // por válidos sería volver a arrastrar historia vieja al viaje de ahora.
+  const delTurno = registrosPunto.filter((r) => !!ruta?.turno && r.turno === ruta.turno);
+
   // Nombre y escuela de un niño. Primero de los niños que llevo; si no está ahí
   // (lo bajó el otro bus por excepción y no es de mi ruta, así que las reglas no
   // me dejan leerlo), de lo que COPIÓ en el registro el conductor que lo entregó.
-  const copiaEnPunto = (id: string) => registrosPunto.find((r) => r.ninoId === id && r.ninoNombre);
+  const copiaEnPunto = (id: string) => delTurno.find((r) => r.ninoId === id && r.ninoNombre);
   const nombre = (id: string) =>
     ninosPorId.get(id)?.nombre ?? copiaEnPunto(id)?.ninoNombre ?? 'Niño de otra ruta';
   const escuelaDe = (id: string) => ninosPorId.get(id)?.escuelaId ?? copiaEnPunto(id)?.ninoEscuelaId;
 
-  const bajoPunto = registrosPunto.filter((r) => r.evento === 'bajo'); // entregas en el punto
-  const subioPunto = registrosPunto.filter((r) => r.evento === 'subio'); // recepciones en el punto
-  const yaBajo = (id: string) => bajoPunto.some((r) => r.ninoId === id);
+  const bajoPunto = delTurno.filter((r) => r.evento === 'bajo'); // entregas en el punto
+  const subioPunto = delTurno.filter((r) => r.evento === 'subio'); // recepciones en el punto
+
+  // ⚠️ HAY QUE SEPARAR LO MÍO DE LO AJENO. Antes se usaba `bajoPunto` entero
+  // para armar la lista de recepción, así que apenas yo entregaba a un niño,
+  // MI PROPIA entrega lo metía en mi lista de "suben a mi bus": el mismo bus
+  // aparecía bajándolo y subiéndolo. Los registros ya guardan `rutaId`, que es
+  // lo que permite distinguirlos.
+  const entregoYo = (r: (typeof bajoPunto)[number]) => r.rutaId === params.rutaId;
+  const bajoPuntoMio = bajoPunto.filter(entregoYo);
+  const bajoPuntoAjeno = bajoPunto.filter((r) => !entregoYo(r));
+
+  // Para MI lista de entrega: ¿ya lo entregué yo?
+  const yaEntregue = (id: string) => bajoPuntoMio.some((r) => r.ninoId === id);
+  // Para MI lista de recepción: ¿lo entregó el OTRO bus? Es la cadena de
+  // custodia (ver la cabecera): sin esto, nada se habilita.
+  const loEntregoElOtro = (id: string) => bajoPuntoAjeno.some((r) => r.ninoId === id);
   const yaSubio = (id: string) => subioPunto.some((r) => r.ninoId === id);
 
   // --- ENTREGA: niños de MI ruta que bajan en este punto ---
@@ -117,7 +162,7 @@ export default function TransbordoScreen() {
   const itemsEntrega: ItemAsistencia[] = entregaIds.map((id) => ({
     id,
     nombre: nombre(id),
-    hecho: yaBajo(id),
+    hecho: yaEntregue(id),
   }));
 
   // --- RECIBE: mi plan (suben en el punto) + los que dejó el otro bus (excepciones) ---
@@ -125,18 +170,33 @@ export default function TransbordoScreen() {
   const recibePlanIds = (ruta?.ninos ?? [])
     .filter((n) => n.subeEn.tipo === 'punto' && n.subeEn.id === params.puntoId)
     .map((n) => n.ninoId);
-  const recibeIds = [...new Set([...recibePlanIds, ...bajoPunto.map((r) => r.ninoId)])];
+  // Los que dejó el OTRO bus (no los míos), y nunca alguien que yo esté
+  // entregando: no se puede recibir en el mismo bus del que uno lo baja.
+  const recibeIds = [...new Set([...recibePlanIds, ...bajoPuntoAjeno.map((r) => r.ninoId)])].filter(
+    (id) => !entregaIds.includes(id)
+  );
   const itemsRecibe: ItemAsistencia[] = recibeIds.map((id) => {
     const escuelaId = escuelaDe(id);
     // Validación NO bloqueante: este bus no cubre la escuela del niño (se valida en
     // el receptor, que sí conoce SU propia ruta; el emisor nunca lee la ruta ajena)
     const noCubre = !!escuelaId && !escuelasRuta.has(escuelaId);
+    // CADENA DE CUSTODIA: no se puede recibir a un niño que el otro bus todavía
+    // no entregó. El botón queda apagado hasta que aparece su registro de
+    // entrega en el punto (llega solo, por la suscripción en vivo).
+    const entregado = loEntregoElOtro(id);
     return {
       id,
       nombre: nombre(id),
       hecho: yaSubio(id),
-      detalle: noCubre ? '⚠ Este bus no va a su escuela' : undefined,
-      alerta: noCubre,
+      habilitado: entregado,
+      // El motivo del bloqueo manda sobre la advertencia de escuela: si el botón
+      // está apagado, lo primero que el conductor necesita saber es por qué.
+      detalle: !entregado
+        ? 'Esperando que el otro bus lo entregue'
+        : noCubre
+          ? '⚠ Este bus no va a su escuela'
+          : undefined,
+      alerta: entregado && noCubre,
     };
   });
 
@@ -148,7 +208,7 @@ export default function TransbordoScreen() {
     return propios.length > 0 && propios[propios.length - 1].evento === 'subio';
   };
   const candidatosExcepcion = [...new Set(registrosViaje.map((r) => r.ninoId))]
-    .filter((id) => estaEnMiBus(id) && !entregaIds.includes(id) && !yaBajo(id));
+    .filter((id) => estaEnMiBus(id) && !entregaIds.includes(id) && !yaEntregue(id));
   const itemsExcepcion: ItemAsistencia[] = candidatosExcepcion.map((id) => ({
     id,
     nombre: nombre(id),
@@ -171,14 +231,28 @@ export default function TransbordoScreen() {
       // Queda guardado en el teléfono antes de mandarse (ver colaRegistros.ts):
       // sin señal no se pierde, y la lista del punto se actualiza sola
       await registrarTransbordo(ctx, items.map(conCopia));
-      // Fase 6: solo la ENTREGA en el punto avisa al padre, con texto neutro
-      // ("sigue en camino") — el transbordo es invisible para él. La recepción no
-      // notifica (sería un doble aviso del mismo cambio de bus) y "continuar sin
-      // transbordo" (lleva motivo) tampoco: esa excepción la revisa el admin.
+      // AVISO AL PADRE EN LOS DOS EXTREMOS (cambio pedido el 2026-09-24).
+      // Antes solo avisaba la entrega, con un texto neutro, porque el transbordo
+      // se había definido como invisible para el padre. Ahora avisan las dos
+      // marcas: bajó de un bus, y subió al otro. El hueco entre las dos es
+      // justamente el rato en que el niño no va arriba de ninguna unidad, que es
+      // lo que un padre quiere saber.
+      //
+      // ⚠️ El `turno` va SIEMPRE y sale de la ruta, no del reloj: sin él, el
+      // aviso decía "va de camino a casa" en un viaje de la mañana en cuanto el
+      // teléfono pasaba el mediodía (o si el reloj del equipo está corrido).
+      //
+      // "Continuar sin transbordo" (lleva motivo) sigue SIN notificar: eso no es
+      // un cambio de bus, es una excepción que revisa el administrador.
       items
-        .filter((it) => it.evento === 'bajo' && !it.motivo)
+        .filter((it) => !it.motivo)
         .forEach((it) =>
-          notificarEventoAlPadre(it.ninoId, 'bajo', { enPunto: true }).catch(() => {})
+          notificarEventoAlPadre(it.ninoId, it.evento, {
+            enPunto: true,
+            turno: ruta?.turno,
+            puntoNombre: params.puntoNombre,
+            unidad: params.busPlaca || undefined,
+          }).catch(() => {})
         );
       reintentarRegistrosPendientes().catch(() => {});
     } catch {
@@ -190,8 +264,11 @@ export default function TransbordoScreen() {
 
   const entregar = (ids: string[]) =>
     registrar(ids.map((id) => ({ ninoId: id, evento: 'bajo' as const })));
+  // Solo se reciben niños ya entregados por el otro bus. El filtro es una red de
+  // seguridad además del botón apagado: entre que se toca "Todos" y que se
+  // guarda, la lista en vivo pudo cambiar.
   const recibir = (ids: string[]) =>
-    registrar(ids.map((id) => ({ ninoId: id, evento: 'subio' as const, discrepancia: !yaBajo(id) })));
+    registrar(ids.filter(loEntregoElOtro).map((id) => ({ ninoId: id, evento: 'subio' as const })));
   const entregarExcepcion = (ids: string[]) =>
     registrar(ids.map((id) => ({ ninoId: id, evento: 'bajo' as const, excepcion: true })));
 
@@ -293,8 +370,15 @@ export default function TransbordoScreen() {
           <>
             <TituloSeccion titulo="Recibo acá (suben a mi bus)" />
             <Text variant="bodySmall" style={[estilosBase.tenue, styles.aclaracion]}>
-              Esta lista se llena sola con los niños que deja el otro bus.
+              Esta lista se llena sola con los niños que deja el otro bus. Cada
+              niño se habilita cuando el otro conductor confirma que lo entregó.
             </Text>
+            {falloEscucha && (
+              <Text variant="bodySmall" style={[styles.aclaracion, { color: tema.colors.error }]}>
+                ⚠ No se está recibiendo lo que marca el otro bus. Revisá la señal.
+                Si no vuelve, usá “Continuar sin transbordo” y avisá a la administración.
+              </Text>
+            )}
             <GrupoAsistencia
               titulo={`En ${params.puntoNombre}`}
               items={itemsRecibe}
